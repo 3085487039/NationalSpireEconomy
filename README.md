@@ -120,10 +120,10 @@
 ### 两套基线（**顺序是硬约束**）
 
 ```powershell
-# ① 零依赖基线（先跑）—— <当前 389 / 389>
+# ① 零依赖基线（先跑）—— <当前 391 / 391>
 dotnet run --project tests/NationalSpireEconomy.Tests/NationalSpireEconomy.Tests.csproj -c Release
 
-# ② 含游戏引用基线（最后跑）—— <当前 516 / 516>
+# ② 含游戏引用基线（最后跑）—— <当前 523 / 523>
 dotnet run --project tests/NationalSpireEconomy.Tests/NationalSpireEconomy.Tests.csproj -c Release -p:GameRefsEnabled=true
 ```
 

@@ -121,7 +121,7 @@ public static class TradePreviewBuilder
             OfferExists: false,
             OfferPending: true,
             Expired: false,
-            ReadOnlyText: Compose(checks, ctx, intent.Kind, intent.Direction, intent.Title(),
+            ReadOnlyText: Compose(checks, ctx, intent.Kind, intent.Direction,
                 intent.InitiatorId, intent.CounterpartyId, intent.AmountUsd, intent.Items,
                 offerIdHint ?? "(尚未落单)", ctx.Day, ctx.Day + Math.Max(1, ctx.Config.Trade.OfferExpiryDays), soft));
     }
@@ -184,7 +184,7 @@ public static class TradePreviewBuilder
             OfferExists: true,
             OfferPending: pending,
             Expired: expired,
-            ReadOnlyText: Compose(checks, ctx, offer.Kind, offer.Direction, TitleFor(offer.Kind, offer.Direction),
+            ReadOnlyText: Compose(checks, ctx, offer.Kind, offer.Direction,
                 offer.InitiatorId, offer.CounterpartyId, offer.Amount, offer.Items, offer.Id,
                 offer.CreatedDay, offer.ExpiresDay, soft));
     }
@@ -265,30 +265,75 @@ public static class TradePreviewBuilder
             _ => kind
         };
 
+    /// <summary>
+    /// 拼出给玩家看的只读预览正文。
+    /// <para>
+    /// <b>2026-10-12 改写（真机截图暴露的观感问题）</b>：原文案长这样 ——
+    /// <c>发起方：player｜对手方：pro2_5</c> 后面跟着三行余额，
+    /// 其中 <c>player</c> 出现两次（一次标「发起方」、一次标「你」）。
+    /// 玩家看到的是<b>内部 id + 重复行</b>，像调试输出。现在：
+    /// </para>
+    /// <list type="number">
+    /// <item>只用「你」与对手方的<b>显示名</b>，不再出现 <c>player</c> / <c>pro2_5</c> 这类 id；</item>
+    /// <item><b>没有重复行</b>：每人只占一行；</item>
+    /// <item>方向用大白话说清（谁付、谁收），并在正文里给出金额。</item>
+    /// </list>
+    /// <para>
+    /// <b>注意数字纪律</b>：这段文本含金额，所以它只能进 V 段 / 弹窗 / 日志，<b>绝不能进 S 段</b>
+    /// （稳定段零数字，见 <c>ConfigLoader.ValidatePrompt</c>）。
+    /// </para>
+    /// </summary>
     private static string Compose(IReadOnlyList<TradePreviewCheck> checks, TradeContext ctx, string kind,
-        string direction, string title, string initiatorId, string counterpartyId, long amountUsd,
+        string direction, string initiatorId, string counterpartyId, long amountUsd,
         IReadOnlyList<TradeItemLine> items, string offerId, int createdDay, int expiresDay, bool soft)
     {
+        long amount = Math.Abs(amountUsd);
+        bool playerPays = string.Equals(direction, TradeDirections.PlayerToNpc, StringComparison.Ordinal);
+        bool npcPays = string.Equals(direction, TradeDirections.NpcToPlayer, StringComparison.Ordinal);
+
+        // 对手方是谁：玩家发起时是收货方，NPC 发起时是发起方。
+        string npcId = ctx.IsPlayer(initiatorId) ? counterpartyId : initiatorId;
+        string who = ctx.DisplayNameOf(npcId);
+
+        string payLine = playerPays ? $"你将支付 {MoneyUnits.Format(amount)}"
+            : npcPays ? $"{who} 将支付 {MoneyUnits.Format(amount)}"
+            : $"金额 {MoneyUnits.Format(amount)}";
+
+        string itemPart = items.Count > 0
+            ? "｜物品 " + string.Join("、", items.Select(i => $"{i.ItemId}×{i.Quantity}"))
+            : "";
+
         var lines = new List<string>
         {
-            $"【成交预览·只读】{title}｜交易单 {offerId}",
-            $"  发起方：{initiatorId}｜对手方：{counterpartyId}" +
-            (items.Count > 0 ? $"｜物品 {string.Join("、", items.Select(i => $"{i.ItemId}×{i.Quantity}"))}" : ""),
-            $"  金额：{MoneyUnits.Format(Math.Abs(amountUsd))}",
-            "  " + SideOf(ctx, initiatorId, direction, amountUsd).Describe() + "（发起方）",
-            "  " + SideOf(ctx, counterpartyId, direction, amountUsd).Describe() + "（对手方）",
-            "  " + PlayerSide(ctx, direction, amountUsd).Describe() + "（你）",
+            $"【成交预览·只读】{kind}｜{payLine}｜交易单 {offerId}",
+            // 每人只占一行：用显示名替换掉 SideOf 里那个原始 id。
+            // Describe() 的格式（余额 → 余额（±额））已被测试钉住，这里只换人名。
+            "  " + Rename(SideOf(ctx, ctx.LocalHumanId, direction, amountUsd).Describe(), "你"),
+            "  " + Rename(SideOf(ctx, npcId, direction, amountUsd).Describe(), who),
             $"  校验：{checks.Count(c => c.Ok)}/{checks.Count} 通过" +
             (checks.Any(c => !c.Ok)
                 ? "｜未通过：" + string.Join("；", checks.Where(c => !c.Ok).Select(c => $"{c.Validator}={c.Code}"))
-                : ""),
-            $"  幂等键：{offerId}｜有效期：第 {expiresDay} 天（今天第 {ctx.Day} 天，创建于第 {createdDay} 天）",
+                : "") + itemPart,
+            $"  单号 {offerId}｜有效期至第 {expiresDay} 天（今天第 {ctx.Day} 天，创建于第 {createdDay} 天）",
             "  ★本预览不动任何余额；真正动钱要等「双人确认」都到齐之后的结算步骤。"
         };
 
         if (soft) lines.Add("  （该笔属于「软失败」：NPC 想给但给不起，会用自己的口吻说出来，不落交易单。）");
 
         return string.Join(Environment.NewLine, lines);
+    }
+
+    /// <summary>
+    /// 把 <see cref="TradePreviewSide.Describe"/> 开头那个原始 id 换成显示名。
+    /// <para>
+    /// 只换第一个冒号之前的部分，余额与 delta 交给 <c>Describe</c> 去渲染 ——
+    /// 那段格式有测试钉着（"预览的 delta 必须等于真跑一遍的余额差"），不在这里重写一遍。
+    /// </para>
+    /// </summary>
+    private static string Rename(string described, string displayName)
+    {
+        int colon = described.IndexOf('：');
+        return colon < 0 ? displayName + "：" + described : displayName + described[colon..];
     }
 }
 

@@ -148,6 +148,106 @@ public static class TradeMarkerInterceptor
         return true;
     }
 
+    // ─────────────────────────────────────────────────────────────────
+    // 显示出口的剥离（与 Feed 的职责分开）
+    // ─────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// <b>只剥离标记、不产生任何意图</b>：给"真正被渲染/存档的那份正文"用。
+    /// <para>
+    /// <b>为什么必须有这个入口（2026-10-12 真机 + path-probe.log 实测）</b>：
+    /// 我们原先只在 <c>PrivateStreamParser.Feed</c> 上剥标记，但真机的渲染链是
+    /// </para>
+    /// <code>LeadingReasoningStream.Feed("…")   ← 外层流，把原文【原样】累积
+    ///     └→ PrivateStreamParser.Feed("…") ← 我们打补丁的地方（只影响解析器的 _visible）
+    /// …
+    /// PrivateTurn.set_Reply("…含标记的完整原文…")  ← ★ 界面渲染与存档用的是这一份
+    /// </code>
+    /// <para>
+    /// 证据：`path-probe.log` 里同一时刻既有
+    /// <c>Feed("[")</c> … <c>Feed("Trade")</c>（标记确实经过了 Feed，所以能被识别），
+    /// 又有 <c>set_Reply("[0]\"哦，那就是又加一小时…\n\n[Trade: …\"")</c>（含标记的原文）。
+    /// 两者互不影响 —— 于是标记照样出现在玩家眼前。
+    /// </para>
+    /// <para>
+    /// <b>为什么这里不解析、不落单</b>：落单只由 <see cref="RewriteFeed"/> 负责。
+    /// 若这里也解析，同一个标记会被处理两遍；虽然幂等键（world+双方+金额+当日）能挡住重复落单，
+    /// 但"一条出口只干一件事"更不容易出错。这里<b>纯净化文本</b>。
+    /// </para>
+    /// <para>
+    /// <b>为什么用 <see cref="TradeProtocol"/> 而不是简单的字符串替换</b>：
+    /// 它已经把两个边界情形处理好了 —— 未闭合的 <c>[Trade: …</c>（原样放行，绝不吞正文）
+    /// 与"括号里塞了别的标记"（原样放行，不破坏原版自己的解析）。这两点都有测试钉着。
+    /// </para>
+    /// </summary>
+    /// <param name="text">即将被渲染/存档的正文。</param>
+    /// <param name="cleaned">剥离后的正文；没有标记时与入参内容一致。</param>
+    /// <returns>是否真的改动了文本（调用方据此决定要不要写日志）。</returns>
+    public static bool StripForDisplay(string? text, out string cleaned)
+    {
+        cleaned = text ?? "";
+        if (string.IsNullOrEmpty(text)) return false;
+
+        // 没有左括号就必然没有标记：省掉一次完整扫描（私信每轮都会走到这里）。
+        if (text.IndexOf('[') < 0) return false;
+
+        try
+        {
+            string stripped = TradeProtocol.StripMarkers(text);
+            if (string.Equals(stripped, text, StringComparison.Ordinal)) return false;
+
+            // ★ 守住"绝不抹掉无内容片段"（2026-10-12 用例暴露的不一致）：
+            //   TradeProtocol 对"残缺的标记"有两种结局 ——
+            //     · `[Trade: 雇佣, Amount`（冒号后有内容）→ 原样放行（怕吞掉正文）；
+            //     · `[Trade:`（冒号后什么都没有）→ 被 Flush 判成残缺标记并【丢弃】。
+            //   后者会让我们把一个纯片段（甚至只是玩家正文里的半截方括号）静默抹掉，
+            //   而它在渲染路径上是不可逆的。这里改成：只要剥完什么都不剩、
+            //   而入参本身又不是"完整标记"，就退回归还原文 —— 宁可让玩家看到半截语法，
+            //   也绝不悄悄删他的字。
+            if (stripped.Trim().Length == 0 && !LooksLikeCompleteMarker(text))
+            {
+                Log?.Debug("trade",
+                    $"显示出口剥离后为空，已退回归还原文（避免静默删文本）：<{text}>");
+                return false;
+            }
+
+            cleaned = stripped;
+            return true;
+        }
+        catch (Exception e)
+        {
+            // 纯净化失败时放行原文：绝不因为我们的 bug 把模型的话弄丢。
+            Log?.Warn("trade", "显示出口剥离标记失败，已按原文放行：" + e.Message, e);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 这段文本是不是一个<b>完整</b>的交易标记（<c>[Trade: …]</c> / <c>[Buy: …]</c> 且括号闭合）。
+    /// <para>
+    /// 只用于上面那条"剥离后为空"的退让判断：完整的标记被剥掉是正常且期望的，
+    /// 而残缺的片段被剥成空串就说明我们可能删了不该删的东西。
+    /// </para>
+    /// </summary>
+    private static bool LooksLikeCompleteMarker(string text)
+    {
+        int open = text.IndexOf('[');
+        if (open < 0) return false;
+        int close = text.IndexOf(']', open);
+        if (close < 0) return false;
+
+        string group = text[open..(close + 1)];
+        foreach (string keyword in TradeProtocol.MarkerKeywords)
+        {
+            if (group.StartsWith("[" + keyword, StringComparison.OrdinalIgnoreCase))
+            {
+                int colon = group.IndexOfAny([':', '：']);
+                if (colon > 0) return true;
+            }
+        }
+        return false;
+    }
+
     private static void LogIntent(ParserState state, TradeIntent intent)
     {
         state.IntentCount++;

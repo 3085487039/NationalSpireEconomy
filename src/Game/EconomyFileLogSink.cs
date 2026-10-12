@@ -113,7 +113,30 @@ public sealed class EconomyFileLogSink : IEconomyFileSink
     /// </summary>
     public bool TryAppend(string line)
     {
-        if (_disabled) return false;
+        // ★ 2026-10-12 真机挖出的坑：这里原先只有一句 `if (_disabled) return false;`，
+        //   而 `_disabled` 一旦在所有候选落点都写失败时被置位，就【永远不会】再打开。
+        //   真机症状：`mod-debug.log` 在某一刻之后彻底不再增长（探针里 File.AppendAllText
+        //   命中 0 次），而旁路探针日志照常写 —— 于是后续每一轮排查都建立在"日志说什么"
+        //   这个假信息上，白花了整整一轮。
+        //   现在的策略：失败不永久放弃，改为【按行数冷却重试】；
+        //   并且把"已静默多少次"记下来，让恢复那一刻能一眼看出中间丢了多少。
+        if (_disabled)
+        {
+            lock (_gate)
+            {
+                if (_disabled)
+                {
+                    _suppressed++;
+                    if (_suppressed < RetryAfterSuppressedLines) return false;
+
+                    // 冷却到期：把失败标记清掉，重新尝试所有候选落点。
+                    _disabled = false;
+                    _failed.Clear();
+                    LastError = (LastError ?? "") + $"（已静默 {_suppressed} 行后自动重试）";
+                    _suppressed = 0;
+                }
+            }
+        }
 
         lock (_gate)
         {
@@ -159,6 +182,22 @@ public sealed class EconomyFileLogSink : IEconomyFileSink
 
     /// <summary>已被证明写不进去的候选落点（下标）。</summary>
     private readonly HashSet<int> _failed = [];
+
+    /// <summary>
+    /// "已静默"的行数：写到全部候选落点都失败之后，每来一行就加一。
+    /// 到达 <see cref="RetryAfterSuppressedLines"/> 就自动清掉失败标记、重新尝试
+    /// —— 这样日志<b>不会永久闭嘴</b>（2026-10-12 真机教训）。
+    /// </summary>
+    private int _suppressed;
+
+    /// <summary>
+    /// 静默多少行之后自动重试写入。
+    /// <para>
+    /// 取 200 是折中：太小会在磁盘暂时不可写时反复做无效的目录/文件探测（每行一次），
+    /// 太大则一次故障会吞掉几千行日志。200 行大约相当于一次私信往返的量级。
+    /// </para>
+    /// </summary>
+    public const int RetryAfterSuppressedLines = 200;
 
     /// <summary>挑一个能写的落点：已选定的优先（可建目录），其次第一个没失败过的候选。</summary>
     private int SelectTarget()

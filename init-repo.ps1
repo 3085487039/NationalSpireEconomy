@@ -108,7 +108,7 @@ chore: 首次提交 —— NationalSpireEconomy v0.1.0（NationalSpire 二开）
 - 只读成交预览 + 双人确认（确认绝不动钱）
 - 真实动钱 + 审计落盘 audit/<WorldId>.jsonl，幂等可重放
 - 账本真相通道：回执/未成立/审计回读，模型不能谎称"钱转了"
-- 基线：零依赖 389/389、含游戏引用 516/516、三种构建 0 警告
+- 基线：零依赖 391/391、含游戏引用 523/523、三种构建 0 警告
 
 上游：NationalSpire，作者 Catfish872，PolyForm Noncommercial 1.0.0
 （许可证逐字副本见 licenses/LICENSE-NationalSpire.txt，禁止商业使用）

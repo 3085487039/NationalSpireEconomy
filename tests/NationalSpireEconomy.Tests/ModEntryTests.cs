@@ -26,6 +26,7 @@ public static class ModEntryTests
         FileLogSinkFallsBackToSecondCandidate,
         FileLogSinkSwitchesCandidateWhenWriteIsDenied,
         FileLogSinkNeverThrows,
+        FileLogSinkReopensAfterBeingDisabled,
         FileLogSinkAcceptsTextWriterSink,
 
         // 配置门禁
@@ -208,6 +209,57 @@ public static class ModEntryTests
         adapter.AttachFileSink(bad, LogLevel.Info, "boot", "即使是坏的落点也不能抛");
         adapter.Warn("test", "这一行写不进去，但绝不能让游戏崩");
         TestRunner.True(EconomyLogAdapter.FileSinkReport.Length > 0, "落点健康结论必须始终有文本");
+    }
+
+    /// <summary>
+    /// <b>★ 日志器不许永久闭嘴（2026-10-12 真机教训）。</b>
+    /// <para>
+    /// 真机症状：`mod-debug.log` 在某一刻之后<b>彻底不再增长</b>（旁路探针里
+    /// <c>File.AppendAllText</c> 命中 0 次），而探针日志照常写 ——
+    /// 于是后续每一轮排查都建立在"日志说什么"这个假信息上，白花了一整轮。
+    /// </para>
+    /// <para>
+    /// 根因：<c>TryAppend</c> 开头只有一句 <c>if (_disabled) return false;</c>，
+    /// 而 <c>_disabled</c> 在所有候选落点写失败后被置位就<b>永不恢复</b>。
+    /// </para>
+    /// <para>
+    /// 这条钉住修复后的行为：<b>静默满 <see cref="EconomyFileLogSink.RetryAfterSuppressedLines"/>
+    /// 行之后必须自动重试</b>，并且落点恢复可写时要真的写进去。
+    /// </para>
+    /// </summary>
+    private static void FileLogSinkReopensAfterBeingDisabled()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "nse-logsink-retry-" + Guid.NewGuid().ToString("N"));
+        string good = Path.Combine(dir, EconomyFileLogSink.FileName);
+        try
+        {
+            // ① 先让它彻底失败：登记一个非法路径，写几次就进入"永久静默"态。
+            var sink = new EconomyFileLogSink();
+            sink.AddCandidate("Z:\\<>|\\" + EconomyFileLogSink.FileName);
+            TestRunner.False(sink.TryAppend("第一次必然失败"), "非法落点应该写不进去");
+
+            // ② 现在把落点换成一个真实可写目录（模拟"磁盘/权限恢复了"）。
+            sink.AddCandidate(good);
+
+            // ③ 静默计数没到阈值之前，它应该继续闭嘴（不反复做无效探测）。
+            bool early = sink.TryAppend("还没到重试阈值");
+            TestRunner.False(early, "静默未满阈值时不该写");
+
+            // ④ 把它推到阈值之后：必须自动重开并写进新的可写落点。
+            for (int i = 0; i < EconomyFileLogSink.RetryAfterSuppressedLines; i++)
+                sink.TryAppend("填充静默计数 " + i);
+
+            bool recovered = sink.TryAppend("恢复之后这一行必须落盘");
+            TestRunner.True(recovered, "★静默满阈值后必须自动重试写入（不许永久闭嘴）");
+            TestRunner.True(File.Exists(good), "恢复后应真的建出日志文件");
+            TestRunner.Contains(File.ReadAllText(good), "恢复之后这一行必须落盘",
+                "★恢复后这一行要真的在文件里");
+        }
+        finally
+        {
+            try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
+            catch (IOException) { }
+        }
     }
 
     /// <summary>适配器只依赖 <see cref="IEconomyFileSink"/> 这层抽象，换成别的下沉实现照样能用。</summary>

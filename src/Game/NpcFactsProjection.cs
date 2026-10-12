@@ -34,7 +34,20 @@ public static class NpcFactsProjection
             ClubId: person.ClubId ?? "",
             PersonalityKind: KindOf(person),
             PersonalityVersion: VersionOf(person),
-            Identities: person.Identities ?? []);
+            Identities: person.Identities ?? [],
+            // 2026-10-12：把人名也带上。它是确认弹窗里"对手方：酸橙汽水"的来源——
+            // 少了它，弹窗只能显示 pro2_5 这种内部 id，看着像调试输出。
+            Name: NameOf(person));
+    }
+
+    /// <summary>
+    /// 这个人的显示名（原版 <c>CareerPerson.Name</c>）。
+    /// 没名字时返回空串，展示端负责回退到 id —— 绝不在这里编一个名字出来。
+    /// </summary>
+    public static string NameOf(CareerPerson person)
+    {
+        ArgumentNullException.ThrowIfNull(person);
+        return person.Name ?? "";
     }
 
     /// <summary>批量投影，自动跳过 null 与同 id 的重复项（保留第一个）。</summary>

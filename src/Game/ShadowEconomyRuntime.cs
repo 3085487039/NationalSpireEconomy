@@ -169,6 +169,20 @@ public sealed class ShadowEconomyRuntime
     public EconomyWorld? WorldFor(CareerData data)
     {
         if (data == null) return null;
+
+        // ★ 2026-10-12 甲方拍板的方案①：顺手清掉存档里【已经固化】的 [Trade: …] 标记。
+        //   为什么挂在这里：私信按需载入、跳天、界面预览最终都会走到 WorldFor，
+        //   是进程里最早、也最全地拿到"游戏正在用的那份 CareerData"的地方。
+        //   同一份数据只清一次（按对象身份记），所以这条热路径上不会反复遍历会话树。
+        //
+        //   ★ 无论结果如何都必须留一行日志：第一版清理器在"拿不到结构"时静默返回，
+        //     于是真机上"清理器没跑"与"跑了但没找到标记"完全无法区分。
+        //     这里的 ProbeStructure 会把三层结构的真实名字打出来（Life / Mailbox / Turns）。
+        bool cleaned = MailboxSanitizer.Sanitize(data, _log);
+        if (MailboxSanitizer.Ran)
+            _log.Info("trade", "[Economy-Marker] 存档结构探测：" + MailboxSanitizer.ProbeStructure(data) +
+                              (cleaned ? "｜本次有清理" : "｜本次无改动"));
+
         IReadOnlyList<INpcFacts> people;
         try
         {

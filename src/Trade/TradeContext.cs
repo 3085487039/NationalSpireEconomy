@@ -45,4 +45,35 @@ public sealed class TradeContext
     public bool IsPlayer(string personId) =>
         string.Equals(personId, EconomyTier.PlayerId, StringComparison.Ordinal) ||
         string.Equals(personId, LocalHumanId, StringComparison.Ordinal);
+
+    /// <summary>
+    /// 某个参与方<b>给人看的名字</b>。
+    /// <para>
+    /// <b>为什么需要它（2026-10-12 真机截图暴露的观感问题）</b>：确认弹窗原先直接显示原始 id，
+    /// 于是玩家看到的是 <c>发起方：player｜对手方：pro2_5</c>，而原版界面里这个人叫
+    /// 「酸橙汽水」—— 一边是内部编号、一边是人名，看着像调试输出。
+    /// </para>
+    /// <para>
+    /// 解析顺序：玩家侧用固定称呼 → <see cref="Counterparty"/> 的显示名（仅当它确实是这个人）
+    /// → 退回原 id。<b>绝不返回空串</b>，否则文案里会缺一块。
+    /// </para>
+    /// <para>
+    /// <b>已知局限</b>：影子存档里<b>不存人名</b>（人名是原版生涯数据，属于只读、且会变），
+    /// 所以只要 <see cref="Counterparty"/> 为空或不是这个人（例如投票路径、跨重启后的补记路径），
+    /// 就只能退回显示 id。要彻底解决就得把人名持久化进影子存档 —— 那是另一件事，本步不做。
+    /// </para>
+    /// </summary>
+    public string DisplayNameOf(string personId)
+    {
+        if (IsPlayer(personId)) return "你";
+        if (string.IsNullOrEmpty(personId)) return "对方";
+
+        if (Counterparty != null && string.Equals(Counterparty.Id, personId, StringComparison.Ordinal))
+        {
+            string name = Counterparty.Name;
+            if (!string.IsNullOrWhiteSpace(name)) return name.Trim();
+        }
+
+        return personId;
+    }
 }

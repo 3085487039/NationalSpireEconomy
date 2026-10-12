@@ -280,6 +280,12 @@ public static class EconomyModEntry
 
         PatchDiagnostics.Run(_harmony, log, ConsoleSinkOf(log), modsDir, dataDir);
         if (PrivateStreamPatch.Applied) patches.AddRange(PrivateStreamPatch.PatchedMethods);
+        // 显示出口补丁是【另一个方法】，不并进上面的清单会让启动行只说一半实话 ——
+        // 而"启动行没提它"正是上一轮没人发现标记泄漏的原因之一。
+        if (PrivateReplyPatch.Applied) patches.Add("PrivateTurn.set_Reply");
+        // 并行可见流（LeadingReasoningStream）是同日第二轮才发现的第二个流式出口；
+        // 它也必须在启动行里出现，否则"日志看起来都装上了但界面还有标记"会再发生一次。
+        if (LeadingStreamPatch.Applied) patches.AddRange(LeadingStreamPatch.PatchedMethods);
 
         // ── 第 6.5 步：现在才装配旁路取证探针 ──
         // 必须在这之后：第 6 步刚把 NationalSpire 显式加载进来，
@@ -541,7 +547,9 @@ public static class EconomyModEntry
         PathProbe.Write($"===== 补挂补丁（{reason}）｜原版副本 {copies.Count} 份 =====");
         log.Info("inject", $"[Economy-Reinforce] {reason}：发现原版副本 {copies.Count} 份，逐份补齐");
 
-        // ① 流补丁（[Trade:] 标记抽取）——按副本逐个挂。
+        // ① 流补丁（[Trade:] 标记抽取）+ 显示出口补丁（渲染前剥标记）——按副本逐个挂。
+        //    两个必须一起补：只补流补丁会出现"标记被识别、单也落了，但玩家界面上照样看得见"
+        //    （2026-10-12 真机实测，见 PrivateReplyPatch 的说明）。
         foreach (var copy in copies)
         {
             try
@@ -550,18 +558,44 @@ public static class EconomyModEntry
                 if (type == null)
                 {
                     PathProbe.Write($"补挂：{AssemblyInventory.Describe(copy)} 里没有 {PrivateStreamPatch.TargetTypeName}");
-                    continue;
+                }
+                else
+                {
+                    var feed = AccessTools.Method(type, PrivateStreamPatch.FeedMethodName, [typeof(string)]);
+                    var finish = AccessTools.Method(type, PrivateStreamPatch.FinishMethodName, Type.EmptyTypes);
+                    PrivateStreamPatch.ApplyTo(harmony, type, feed, finish, log);
+                    PathProbe.Write($"补挂：流补丁 {type.FullName}｜ALC {AssemblyInventory.ContextOf(copy)}｜" +
+                                    PrivateStreamPatch.Detail);
                 }
 
-                var feed = AccessTools.Method(type, PrivateStreamPatch.FeedMethodName, [typeof(string)]);
-                var finish = AccessTools.Method(type, PrivateStreamPatch.FinishMethodName, Type.EmptyTypes);
-                PrivateStreamPatch.ApplyTo(harmony, type, feed, finish, log);
-                PathProbe.Write($"补挂：流补丁 {type.FullName}｜ALC {AssemblyInventory.ContextOf(copy)}｜" +
-                                PrivateStreamPatch.Detail);
+                var turn = copy.GetType(PrivateReplyPatch.TargetTypeName, throwOnError: false);
+                if (turn == null)
+                {
+                    PathProbe.Write($"补挂：{AssemblyInventory.Describe(copy)} 里没有 {PrivateReplyPatch.TargetTypeName}");
+                }
+                else
+                {
+                    PrivateReplyPatch.ApplyTo(harmony, turn, log);
+                    PathProbe.Write($"补挂：显示出口补丁 {turn.FullName}｜ALC {AssemblyInventory.ContextOf(copy)}｜" +
+                                    PrivateReplyPatch.Detail);
+                }
+
+                // 并行可见流：与上面两个出口一样按副本逐个补齐，任何一条漏挂都会让标记重新出现。
+                var leading = copy.GetType(LeadingStreamPatch.TargetTypeName, throwOnError: false);
+                if (leading == null)
+                {
+                    PathProbe.Write($"补挂：{AssemblyInventory.Describe(copy)} 里没有 {LeadingStreamPatch.TargetTypeName}");
+                }
+                else
+                {
+                    LeadingStreamPatch.ApplyTo(harmony, leading, log);
+                    PathProbe.Write($"补挂：并行可见流补丁 {leading.FullName}｜ALC {AssemblyInventory.ContextOf(copy)}｜" +
+                                    LeadingStreamPatch.Detail);
+                }
             }
             catch (Exception e)
             {
-                PathProbe.Write($"补挂流补丁失败：{e.GetType().Name}: {e.Message}");
+                PathProbe.Write($"补挂补丁失败：{e.GetType().Name}: {e.Message}");
             }
         }
 

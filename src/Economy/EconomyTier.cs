@@ -12,6 +12,17 @@ public interface INpcFacts
     /// <summary>原版 <c>CareerPerson.Id</c>。</summary>
     string Id { get; }
 
+    /// <summary>
+    /// 原版 <c>CareerPerson.Name</c> —— <b>给人看的名字</b>（例如「酸橙汽水」）。
+    /// <para>
+    /// <b>为什么要投影它（2026-10-12 真机截图暴露的观感问题）</b>：确认弹窗原先只能显示原始 id，
+    /// 于是玩家看到「对手方：pro2_5」，而原版界面里这个人叫「酸橙汽水」——
+    /// 一边是内部编号、一边是人名，看着像调试输出。
+    /// </para>
+    /// <para>缺省是空串：没跑过命名或老存档可能没有名字，展示端必须能回退到 id。</para>
+    /// </summary>
+    string Name { get; }
+
     /// <summary>原版 <c>CareerPerson.Role</c>。0.26.7 的实际取值见 <see cref="KnownRoles"/>。</summary>
     string Role { get; }
 
@@ -44,7 +55,8 @@ public sealed record NpcFacts(
     string PersonalityKind = "",
     int PersonalityVersion = 0,
     IReadOnlyList<string>? Identities = null,
-    int SalaryTierFromConfig = 0) : INpcFacts
+    int SalaryTierFromConfig = 0,
+    string Name = "") : INpcFacts
 {
     public IReadOnlyList<string> Identities { get; init; } = Identities ?? [];
 }

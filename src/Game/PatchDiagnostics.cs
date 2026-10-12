@@ -121,6 +121,16 @@ public static class PatchDiagnostics
         report.AppendLine($"  自证（喂 {ProbeMarker}）：{(selfTest == true ? "通过，标记已被剥离" : selfTest == false ? "未通过，标记仍在正文里" : "无法验证")}");
         SelfTestPassed = selfTest;
 
+        // ── 5. ★ 显示出口补丁（2026-10-12 真机挖出的盲区，见 PrivateReplyPatch 的说明）──
+        //    上面那条自证只验证了"解析器的可见文本"，而玩家看的是 PrivateTurn.Reply。
+        //    这一节补上真正被渲染的那条路。
+        Emit(console, log, ApplyDisplayPatch(harmony, nationalSpire, log, report));
+
+        // ── 6. ★ 并行可见流补丁（同日第二轮实测：真机有【两条】并行的流式出口）──
+        //    LeadingReasoningStream.Feed 与 PrivateStreamParser.Feed 逐分片一一对应（各 4369 次），
+        //    我们原先只给后者打了补丁，于是前者自己累积的文本把标记带到了界面上。
+        Emit(console, log, ApplyLeadingStreamPatch(harmony, nationalSpire, log, report));
+
         string summary = applied
             ? $"{ConsolePrefix} 结果：成功｜{PrivateStreamPatch.Detail}｜自证 {(selfTest == true ? "通过" : "未通过")}"
             : $"{ConsolePrefix} 结果：失败｜{PrivateStreamPatch.Detail}";
@@ -195,6 +205,104 @@ public static class PatchDiagnostics
             // 把异常记下来而不是静默返回 null：静默失败正是阶段 2 第一轮踩的坑。
             SelfTestError = e.GetType().Name + ": " + e.Message;
             return null;
+        }
+    }
+
+    /// <summary>
+    /// <b>并行可见流补丁</b>：给 <c>LeadingReasoningStream.Feed(string)</c> 也装上"剥标记"。
+    /// <para>
+    /// <b>为什么单独一节（2026-10-12 第二轮实测）</b>：探针显示真机有<b>两条并行的流式出口</b>，
+    /// 参数逐字相同（各 4369 次）；我们只给 <c>PrivateStreamParser</c> 打了补丁，
+    /// 于是另一条自己累积的文本把 <c>[Trade: …]</c> 带到了界面上（玩家截图证实）。
+    /// </para>
+    /// <para>装不上不算整体失败，但必须显式报出来。</para>
+    /// </summary>
+    private static string ApplyLeadingStreamPatch(Harmony harmony, Assembly nationalSpire,
+        IEconomyLog? log, StringBuilder report)
+    {
+        try
+        {
+            var type = nationalSpire.GetType(LeadingStreamPatch.TargetTypeName, throwOnError: false);
+            if (type == null)
+            {
+                // 这条流在有些版本里可能不存在（例如推理流被关掉时）——报"跳过"而不是"失败"。
+                string line = $"{ConsolePrefix} 并行可见流补丁：跳过｜本版没有 {LeadingStreamPatch.TargetTypeName}";
+                report.AppendLine("  " + line);
+                return line;
+            }
+
+            bool ok = LeadingStreamPatch.ApplyTo(harmony, type, log);
+            string text = ok
+                ? $"{ConsolePrefix} 并行可见流补丁：成功｜{LeadingStreamPatch.Detail}"
+                : $"{ConsolePrefix} 并行可见流补丁：失败｜{LeadingStreamPatch.Detail}";
+            report.AppendLine("  " + text);
+            return text;
+        }
+        catch (Exception e)
+        {
+            string line = $"{ConsolePrefix} 并行可见流补丁：异常｜{e.GetType().Name}: {e.Message}";
+            report.AppendLine("  " + line);
+            return line;
+        }
+    }
+
+    /// <summary>
+    /// <b>显示出口补丁</b>：给 <c>PrivateTurn.set_Reply(string)</c> 装上"渲染前剥标记"。
+    /// <para>
+    /// <b>为什么单独一节（2026-10-12）</b>：真机里玩家明明该看不到标记，却看到了。
+    /// 探针证明渲染用的是 <c>PrivateTurn.Reply</c>，而上面那条自证只覆盖了
+    /// <c>PrivateStreamParser</c> 的可见文本 —— 两者是<b>不同的出口</b>。
+    /// 这一节负责把"真正被渲染的那条路"也装上、并且<b>对着它</b>做自证。
+    /// </para>
+    /// <para>
+    /// 它装不上不算整体失败（解析与落单仍然照常工作），但必须<b>显式报出来</b>，
+    /// 否则玩家又会看到一串机器语法而没人知道为什么。
+    /// </para>
+    /// </summary>
+    private static string ApplyDisplayPatch(Harmony harmony, Assembly nationalSpire,
+        IEconomyLog? log, StringBuilder report)
+    {
+        try
+        {
+            var turn = nationalSpire.GetType(PrivateReplyPatch.TargetTypeName, throwOnError: false);
+            if (turn == null)
+            {
+                string line = $"{ConsolePrefix} 显示出口补丁：跳过｜找不到类型 {PrivateReplyPatch.TargetTypeName}";
+                report.AppendLine("  " + line);
+                return line;
+            }
+
+            var setter = PrivateReplyPatch.FindSetter(turn);
+            report.AppendLine($"  {PrivateReplyPatch.TargetTypeName}.{PrivateReplyPatch.MethodName}(string)：" +
+                              (setter == null ? "缺失" : "存在"));
+
+            if (setter == null)
+            {
+                string line = $"{ConsolePrefix} 显示出口补丁：跳过｜找不到 set_Reply(string)（签名变了）";
+                report.AppendLine("  " + line);
+                return line;
+            }
+
+            bool ok = PrivateReplyPatch.ApplyTo(harmony, turn, log);
+
+            bool? selfTest = PrivateReplyPatch.SelfTest(turn);
+            report.AppendLine($"  显示出口自证（调真实的 set_Reply 再读回 Reply）：" +
+                              (selfTest == true ? "通过，标记没有进入 Reply"
+                                  : selfTest == false ? "未通过，标记仍在 Reply 里"
+                                  : "无法验证"));
+
+            string text = ok
+                ? $"{ConsolePrefix} 显示出口补丁：成功｜{PrivateReplyPatch.Detail}｜自证 " +
+                  (selfTest == true ? "通过" : selfTest == false ? "未通过" : "无法验证")
+                : $"{ConsolePrefix} 显示出口补丁：失败｜{PrivateReplyPatch.Detail}";
+            report.AppendLine("  " + text);
+            return text;
+        }
+        catch (Exception e)
+        {
+            string line = $"{ConsolePrefix} 显示出口补丁：异常｜{e.GetType().Name}: {e.Message}";
+            report.AppendLine("  " + line);
+            return line;
         }
     }
 

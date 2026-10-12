@@ -1,4 +1,4 @@
-# One-shot release build + deployment package.
+﻿# One-shot release build + deployment package.
 #
 # NOTE: messages and paths are deliberately ASCII-only / variable-derived.
 # Windows PowerShell 5.1 reads a BOM-less UTF-8 script as ANSI, so any non-ASCII

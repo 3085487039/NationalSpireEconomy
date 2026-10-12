@@ -16,7 +16,9 @@ public static class TradePreviewTests
         PreviewIsReadOnly,
         PreviewDeltasMatchRealExecution,
         PreviewReportsBlockingValidator,
-        PreviewTextCarriesNumbersAndIsNotStableSegment
+        PreviewTextCarriesNumbersAndIsNotStableSegment,
+        PreviewUsesDisplayNameAndHasNoDuplicateRow,
+        PreviewSaysWhoPaysInPlainLanguage
     ];
 
     private static readonly DelegateEconomyLog Silent = new((_, _, _, _) => { });
@@ -106,9 +108,72 @@ public static class TradePreviewTests
 
         TestRunner.Contains(preview.ReadOnlyText, "成交预览", "文案要有可检索的标题");
         TestRunner.Contains(preview.ReadOnlyText, "$", "文案要给出金额（因此只能进 V 段）");
-        TestRunner.Contains(preview.ReadOnlyText, "幂等键", "文案要给出幂等键，便于对账");
+        // 2026-10-12：预览文案人话化时把「幂等键」改成了「单号」（与回执/未成立的措辞统一）。
+        // 这条断言的本意是"文案要能对上账"，单号同样承担这个职责。
+        TestRunner.Contains(preview.ReadOnlyText, "单号", "文案要给出单号，便于对账");
         TestRunner.NotContains(preview.ReadOnlyText, "【经济状况】", "绝不能用稳定段的标题（那是零数字段）");
         TestRunner.Contains(preview.ReadOnlyText, "不动任何余额", "文案本身要声明只读");
+    }
+
+    /// <summary>
+    /// <b>★ 2026-10-12 真机截图暴露的观感问题的回归：预览必须用「人话 + 人名」，不能是内部 id 拼盘。</b>
+    /// <para>
+    /// 真机原文案长这样（玩家截图里就是它）：
+    /// </para>
+    /// <code>【成交预览·只读】雇佣（你 → NPC）｜交易单 o0003
+    ///   发起方：player｜对手方：pro2_5
+    ///   player：$196,820 → $193,820（−$3,000）（发起方）
+    ///   pro2_5：$821,000 → $824,000（+$3,000）（对手方）
+    ///   player：$196,820 → $193,820（−$3,000）（你）      ← 玩家那行出现了【两次】</code>
+    /// <para>
+    /// 玩家的原话是"格式太过生疏死板"。修法有两条，都要钉住：
+    /// <b>① 用原版显示名</b>（「酸橙汽水」而不是 <c>pro2_5</c>）；
+    /// <b>② 每人只占一行</b>（去掉那个把玩家列两遍的"发起方/对手方 + 你"三行结构）。
+    /// </para>
+    /// </summary>
+    private static void PreviewUsesDisplayNameAndHasNoDuplicateRow()
+    {
+        var npc = Npc("pro2_5", 800_000);
+        var ctx = Ctx(npc, npcName: "酸橙汽水");
+        var preview = TradePreviewBuilder.ForIntent(ctx, Give(3_000, "pro2_5"), Engine());
+        string text = preview.ReadOnlyText;
+
+        TestRunner.Contains(text, "酸橙汽水", "★要用原版显示名，而不是内部 id");
+        TestRunner.NotContains(text, "pro2_5", "★正文里不该再出现内部 id（它看着像调试输出）");
+        TestRunner.Contains(text, "你：", "玩家一行应以「你」开头");
+
+        // 玩家只能占一行：数一数"你："出现了几次。
+        int youRows = text.Split('\n').Count(l => l.Contains("你：", StringComparison.Ordinal));
+        TestRunner.Equal(1, youRows, "★玩家那一行只能出现一次（真机上是两次）");
+
+        // 也不能再出现"发起方/对手方"那种 id 拼盘。
+        TestRunner.NotContains(text, "发起方：", "不该再用「发起方：<id>」的写法");
+        TestRunner.NotContains(text, "对手方：", "不该再用「对手方：<id>」的写法");
+    }
+
+    /// <summary>
+    /// <b>预览要用大白话说清"谁付钱"</b>，而不是让玩家自己从余额增减里推断方向。
+    /// 两个方向都要说对；<c>你自己出钱</c>那条尤其不能写成"你将收到"。
+    /// </summary>
+    private static void PreviewSaysWhoPaysInPlainLanguage()
+    {
+        var npc = Npc("npc", 800_000);
+
+        // 玩家出钱：标题应写「你将支付」。
+        string playerPays = TradePreviewBuilder
+            .ForIntent(Ctx(npc, npcName: "酸橙汽水"), Give(3_000), Engine()).ReadOnlyText;
+        TestRunner.Contains(playerPays, "你将支付", "★玩家出钱时必须写「你将支付」");
+        TestRunner.Contains(playerPays, "$3,000", "金额要出现在标题行");
+        TestRunner.NotContains(playerPays, "将支付 $0", "不能把金额算成 0");
+
+        // NPC 出钱：标题应写「<人名> 将支付」。
+        string npcPays = TradePreviewBuilder
+            .ForIntent(Ctx(npc, npcName: "酸橙汽水"), PayOut(500), Engine()).ReadOnlyText;
+        TestRunner.Contains(npcPays, "酸橙汽水 将支付", "★NPC 出钱时必须点名是谁付");
+        TestRunner.NotContains(npcPays, "你将支付", "NPC 出钱时不能说成玩家付");
+
+        // 「幂等键」这个内部术语已经换成「单号」，两处都不该再出现旧词。
+        TestRunner.NotContains(playerPays, "幂等键", "对外文案不该出现「幂等键」这类内部术语");
     }
 
     // ── 脚手架（与 TradeEngineTests 同风格，但保持本套件自足）────────
@@ -129,14 +194,15 @@ public static class TradePreviewTests
     private static TradeEngine Engine() => new(RealConfig().Economy, RealConfig().Personality,
         RealConfig().Prompt, Silent);
 
-    private static TradeContext Ctx(NpcEconomy npc, long playerUsd = 1_000_000, int day = 10) => new()
+    private static TradeContext Ctx(NpcEconomy npc, long playerUsd = 1_000_000, int day = 10,
+        string npcName = "") => new()
     {
         World = WorldWith(npc),
         Config = RealConfig().Economy,
         Personality = RealConfig().Personality,
         Prompt = RealConfig().Prompt,
         Counterparty = new NpcFacts(npc.PersonId, "职业选手", Rating: 1200, ClubId: "c00",
-            PersonalityKind: npc.PersonalityKind),
+            PersonalityKind: npc.PersonalityKind, Name: npcName),
         Favour = 0,
         Day = day,
         Wallet = new InMemoryPlayerWallet(playerUsd)
@@ -160,8 +226,10 @@ public static class TradePreviewTests
             Season = 1
         };
 
-    internal static TradeIntent Give(long amountUsd) =>
-        new(TradeKinds.Transfer, TradeDirections.PlayerToNpc, EconomyTier.PlayerId, "npc", amountUsd, [],
+    internal static TradeIntent Give(long amountUsd) => Give(amountUsd, "npc");
+
+    internal static TradeIntent Give(long amountUsd, string npcId) =>
+        new(TradeKinds.Transfer, TradeDirections.PlayerToNpc, EconomyTier.PlayerId, npcId, amountUsd, [],
             "测试", "[Trade: test]");
 
     internal static TradeIntent PayOut(long amountUsd) =>

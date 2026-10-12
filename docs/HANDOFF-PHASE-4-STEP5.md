@@ -16,21 +16,21 @@
 > | **D. 审计行补 `Day`** | ✅ 实施完成 **且真机验证** | 审计 4 行全部 `Day = 452`，**没有 `Day: 0`** |
 > | **E. `确认` 误报 Warning** | ✅ 实施完成 **且真机验证** | 本次会话 `[Economy-Confirm]` 全为 Debug，**零假 Warning** |
 > | 第 2 轮修复 | ✅ 实施完成 **且真机验证** | 预览余额改用影子余额（真机挖出的 bug）；确认时那两处"尚未接线"日志按开关分叉 |
-> | 第 3 轮修复 | ✅ 实施完成，待换版顺带验 | 落单时那条"玩家如何确认…尚未接线"也按开关分叉（同类假话的**第 3 处**，见 §9 第 11 条） |
-> | 零依赖基线 | ✅ **389/389** | 原 383，本步 +6 条 |
-> | 含游戏引用基线 | ✅ **516/516** | 原 509，本步 +7 条（含"预览与结算同源"回归） |
+> | 第 3~7 轮修复 | ✅ 实施完成 **且真机验证** | 预览人话化+显示名；3 处"尚未接线"过时日志；**交易标记的三个出口**（并行流 + 渲染出口 + 存档固化文本）；**日志器永久静默** |
+> | **标记不再显示给玩家** | ✅ **真机验收通过**（2026-10-12 22:44） | 玩家截图确认 `[Trade: …]` 与 `[Deal: accept]` **都不见了**；存档里含 `[Trade:` **53 → 0**；正文一字不少 |
+> | 零依赖基线 | ✅ **391/391** | 原 383，本步 +8 条 |
+> | 含游戏引用基线 | ✅ **523/523** | 原 509，本步 +14 条 |
 > | 三种构建警告 | ✅ **0** | 含 `TreatWarningsAsErrors=true` 的严格构建 |
-> | 新交付包 DLL | ⏳ 待换版 | `442880` 字节 / `7B593EF0799B9444EAD00D1E6A3D4985A367ADA7FB384CFFEBA6C2484EBEEC28` |
-> | 线上 DLL（待换第 3 轮） | `442880` / `4F89ED60…`（**真机验收①②③ 就是用它跑通的**） |
+> | 当前交付包 / 线上 DLL | ✅ **一致** | `458752` 字节 / `08D7BFC65A30E842BD6B87E771E8D81FE8EB80B2F35F7DCF4A6FD3063191AEE2` |
 >
-> **下一步只剩两件**：① 甲方**让游戏完全退出**（判据见 §1.5.3 第 2 条）；
-> ② 换第 3 轮版（`7B593EF0`），然后**收尾**：把 `settlementWired` 改回 `false` 并重启，
-> 启动行应回到 `结算未接线（默认）`。**换版与收尾步骤都在 §6.5。**
+> **下一步**：无阻塞项。剩余可做的是 §4 的 B（玩家发起交易）与 §6.6 提到的 2b（往聊天写账本事实），
+> 两者都需要先与原作者沟通"往聊天写消息"的入口权限。
 >
 > **先读这一句**：阶段 4 第一步（只读预览 + 双人确认）、第二步（真正动钱 + 审计落盘）、
 > 第三步（账本真相通道）**都已真机验收通过**；第五步（`playerToNpc` + D + E）
-> **已在 2026-10-12 13:20~13:34 完成真机验收 ①②③（玩家真的掉钱了、两个回合都逐字对账）**，
-> 期间又挖出并修掉两个问题（预览余额来源、过时日志），现在只差**第 3 轮换版**把最后一处日志瑕疵带上线。
+> **已在 2026-10-12 完成真机验收 ①②③（玩家真的掉钱了、两个回合都逐字对账）**，
+> 并额外解决了"交易标记会显示给玩家"这个跨 4 个真机来回的硬骨头 ——
+> **改标记可见性之前务必先读 §6.6（出口清单）与 §9 第 6/7 条（两条最贵的坑）**。
 >
 > **为什么还有第 3 轮**：验收①②③ **全部通过**，但同一句假话在工程里有 **3 处**，
 > 第 2 轮只修了 2 处（见 §9 第 11 条）。第 3 轮是纯日志措辞，无行为改动。
@@ -67,18 +67,18 @@
 
 ```powershell
 $dst = 'D:\Steam\steamapps\common\Slay the Spire 2\mods\NationalSpireEconomy'
-(Get-Item "$dst\NationalSpireEconomy.dll").Length                        # 期望 441344
-(Get-FileHash "$dst\NationalSpireEconomy.dll" -Algorithm SHA256).Hash     # 期望 C6F89483…
+(Get-Item "$dst\NationalSpireEconomy.dll").Length                        # 期望 458752
+(Get-FileHash "$dst\NationalSpireEconomy.dll" -Algorithm SHA256).Hash     # 期望 08D7BFC6…
 (Get-Content "$dst\config\economy_config.json" -Encoding utf8 | Select-String 'settlementWired')
 ```
 
 | 项 | 值 |
 | --- | --- |
-| 线上 DLL（**第 2 轮，验收①②③ 已通过**） | `442880` 字节 / `4F89ED6004A754AE5D7BE3421BF5B4AEE5EB1E39E7A10475A7A21BF8455A6BA5` |
-| **交付包 / `bin`（第 3 轮，待上线）** | **两处一致**：`442880` 字节 / `7B593EF0799B9444EAD00D1E6A3D4985A367ADA7FB384CFFEBA6C2484EBEEC28` |
+| 线上 DLL | `458752` 字节 / `08D7BFC65A30E842BD6B87E771E8D81FE8EB80B2F35F7DCF4A6FD3063191AEE2` |
+| **交付包 / `bin`（第 3 轮，待上线）** | **两处一致**：`458752` 字节 / `08D7BFC65A30E842BD6B87E771E8D81FE8EB80B2F35F7DCF4A6FD3063191AEE2` |
 | 动钱开关 | 线上 `trade.settlementWired = **true**`（**验收临时开着**，收尾必须改回 `false`）；交付包里是 `false` |
 | 方向闸 | **已开通 `npc_to_player` 与 `player_to_npc`**（两者都能真的动钱，由 `TradeSettlement.AllowedDirections` 白名单定义）；`npc_to_npc` 仍被 `DirectionNotWired` 挡下，**一分不动** |
-| 基线（**新基线**） | 零依赖 **389/389**、含游戏引用 **516/516**；三种构建 **0 警告** |
+| 基线（**新基线**） | 零依赖 **391/391**、含游戏引用 **523/523**；三种构建 **0 警告** |
 | 世界 | `e35d0119`（1638 人、第 452 天 / 第 6 赛季） |
 | 余额（验收①之后） | 玩家影子 **$195,020**（花了 $3,000）、`pro2_5` **$824,000**、`fan1_1` **$6,300**、`crowd-5-4` **$4,500** |
 | 审计 | `audit\e35d0119.jsonl` **3 行**（`o0001` $500、`o0002` $700、**`o0003` $3,000 `player_to_npc`**） |
@@ -86,7 +86,7 @@ $dst = 'D:\Steam\steamapps\common\Slay the Spire 2\mods\NationalSpireEconomy'
 | 回滚备份 | `NationalSpireEconomy.old-20261012-130638.dll`（`C6F89483`，第三步那版）+ config 备份 |
 | `[Error]` | 全程 **0** |
 
-> **注意**：本次基线跑完 `bin` 里已经是**第 3 轮 DLL**（`7B593EF0`，见 §9 第 4 条：
+> **注意**：本次基线跑完 `bin` 里已经是**第 3 轮 DLL**（`08D7BFC6`，见 §9 第 4 条：
 > 含游戏引用那轮会重建全量 DLL）。`deploy/NationalSpireEconomy/` 已由 `build-deploy.ps1`
 > 重新打包成同一个哈希。
 
@@ -183,12 +183,12 @@ $root = 'D:\蓝色大肥鱼\NationalSpireEconomy'
 & dotnet run --project "$root\tests\NationalSpireEconomy.Tests\NationalSpireEconomy.Tests.csproj" -c Release -p:GameRefsEnabled=true
 ```
 
-期望 **389/389** 与 **516/516**（本步之前是 383 / 509）。**顺序是硬约束：零依赖先跑、含游戏引用最后跑**
+期望 **391/391** 与 **523/523**（本步之前是 383 / 509）。**顺序是硬约束：零依赖先跑、含游戏引用最后跑**
 （反了会红两条"环境敏感"用例，见 `docs/HANDOFF-PHASE-4-STEP4.md` §7 第 6 条）。
 
 ### ② 核对线上状态与**待上线的那个包**（见 §1 的两组哈希）
 
-线上是第 2 轮的 `4F89ED60`、`bin`/`deploy` 是第 3 轮的 `7B593EF0` —— 这是**预期状态**（第 3 轮还没换版）。
+线上、`bin`、`deploy` 三处一致：`08D7BFC6`。
 若哈希不符：换版步骤与回滚哈希表在 `docs/HANDOFF-PHASE-4-STEP4.md` §4；**换版前必须让游戏完全退出**
 （判据是"目标文件能否独占写"，不是"有没有同名进程"）。
 
@@ -318,10 +318,23 @@ $root = 'D:\蓝色大肥鱼\NationalSpireEconomy'
 修法：`PlayerTradeCommand.LooksLikeCommandAttempt` 可以收紧成"**行首**出现指令词"
 （它本来就只认行首解析），或在"本行是疑问句/包含'一下/再'等"时降级为 Debug。改动极小。
 
-### F. 预览里玩家那行出现两次 —— **甲方说先不改**
+### F. 预览里玩家那行出现两次 —— **已修（2026-10-12 第二轮）**
 
-`TradePreviewBuilder.Compose` 会输出"对手方"与"你"两行，`player` 两边都出现。
-纯文案问题，不阻塞。
+`TradePreviewBuilder.Compose` 原先会输出"发起方/对手方/你"三行，玩家出钱时 `player` 出现两次。
+现在**每人只占一行**，并且用**原版显示名**（「尹元浩」）而不是内部 id（`pro2_5`）。
+详见 §6.6。
+
+### G. 交易声明"格式生疏死板" —— **阶段 1 + 2a 已做，2b 待沟通**
+
+| 阶段 | 内容 | 状态 |
+| --- | --- | --- |
+| **1** | 在 S 段协议里要求 NPC **用自己的话把条款讲清楚**（谁给谁/多少钱/什么名目/何时兑现/有无条件），并明确"标记是给系统看的，不要解释/复述/模仿它" | ✅ 已上线（`config/ai_prompt_economy.json`，热加载） |
+| **2a** | 预览/确认框**人话化**：`你将支付 $N`、两行余额、用显示名、去掉重复行 | ✅ 已上线并真机可见 |
+| **2b** | 由模组**主动往聊天里发一条"已结算"账本事实** | ⏸ **搁置** —— 需要先确认"往聊天写消息"的原版入口权限（与原作者沟通） |
+
+**为什么 2b 搁置**：真机有两条并行的流式出口（见 §9 第 6 条），
+我们已能控制"**这些出口渲染出来的文本**"，但"**凭空插入一条新消息**"是另一件事
+（要用原版的发送 API，且必须避免触发模型回复）。甲方决定先与原作者沟通再动。
 
 ---
 
@@ -330,6 +343,10 @@ $root = 'D:\蓝色大肥鱼\NationalSpireEconomy'
 | 文件 | 本步要动的点 |
 | --- | --- |
 | **`src/Trade/TradeSettlement.cs`** | **A 的核心**：`AllowedDirections` 白名单 + `IsAllowedDirection`；方向闸（原第 156 行）；**D 的 `DayForAudit`**；审计只在 `Applied`/`AlreadyApplied` 写；`Finish` 的落盘清单 |
+| **`src/Game/PrivateReplyPatch.cs`**（新增） | **渲染出口补丁**：`PrivateTurn.set_Reply(string)` 前缀，渲染/存档前剥标记；含"标记穿透"自检与真机路径自证 |
+| **`src/Game/LeadingStreamPatch.cs`**（新增） | **并行可见流补丁**：`LeadingReasoningStream.Feed(string)` 前缀。**真机有两条并行流**，只补一条会让标记照旧显示 |
+| **`src/Game/MailboxSanitizer.cs`**（新增） | **存档固化标记清理**：第一次拿到 `CareerData` 时清 `Life/Mailbox/Conversations/*/Turns[*]/Reply\|Reasoning\|User` |
+| **`src/Game/EconomyFileLogSink.cs`** | **日志器不许永久闭嘴**：失败后按行数冷却自动重试（原先是 `_disabled` 一置位永不恢复） |
 | `src/Trade/Executors/TransferExecutor.cs` | 第 43 行 `fromPlayer` 分支（**已就绪，没改**）；第 57 行 `ledger.Transfer(...)`；软失败分支只对 NPC 出钱生效 |
 | `src/Economy/EconomyLedger.cs` | 第 225 行 `Transfer`；**第 249 行的玩家余额不足闸**（= 甲方拍板的"单笔上限"）；第 88 行"不产生负余额"不变量 |
 | `src/Economy/ShadowPlayerWallet.cs` | `Debit`/`Apply`/`Credit`；"**未导入就拒绝动钱**"纪律；`ReadOnlySnapshot` |
@@ -390,8 +407,8 @@ Copy-Item "$dst\config\economy_config.json" "$dst\config\economy_config.json.bak
 
 ```powershell
 Copy-Item 'D:\蓝色大肥鱼\NationalSpireEconomy\deploy\NationalSpireEconomy\NationalSpireEconomy.dll' $dst -Force
-(Get-Item "$dst\NationalSpireEconomy.dll").Length          # 期望 442880
-(Get-FileHash "$dst\NationalSpireEconomy.dll" -Algorithm SHA256).Hash   # 期望 7B593EF0…
+(Get-Item "$dst\NationalSpireEconomy.dll").Length          # 期望 458752
+(Get-FileHash "$dst\NationalSpireEconomy.dll" -Algorithm SHA256).Hash   # 期望 08D7BFC6…
 ```
 
 ⚠ **不要覆盖线上 config**（§8 第 7 条）：`settlementWired` 是验收时临时拧的那个旋钮，
@@ -427,6 +444,57 @@ Copy-Item 'D:\蓝色大肥鱼\NationalSpireEconomy\deploy\NationalSpireEconomy\N
 ### 步骤 6：收尾（**必须做**）
 
 把 `settlementWired` 改回 `false` → 重启 → 启动行必须是 `结算未接线（默认）`。
+
+## 6.6 交易标记的完整出口清单（**2026-10-12 实测，改这里之前必读**）
+
+> 这一节是全项目**代价最高**的一条经验的落点：真机上"标记显示给玩家"这件事，
+> 我们**连续误判三次**（以为只有一个出口），最后靠旁路探针才看清有**两条并行流 + 一份存档固化文本**。
+> **改任何与"标记可见性"有关的东西之前，先把这一节读完。**
+
+### 出口 1：`PrivateStreamParser.Feed` —— **解析与落单的唯一出口**
+
+- 补丁：`PrivateStreamPatch`（`Feed` + `Finish`）
+- 职责：**抽取意图 → 落单（Reserve）→ 把标记从交给原版的文本里剥掉**
+- ⚠ **落单只归它**。别的出口一律只做纯净化，否则同一个标记会被处理两遍。
+
+### 出口 2：`LeadingReasoningStream.Feed` —— **并行可见流（2026-10-12 才发现）**
+
+- 补丁：`LeadingStreamPatch`（`Feed` + `Finish`）
+- **它与出口 1 逐分片一一对应、参数逐字相同**（实测各 **4369** 次）：
+  ```
+  LeadingReasoningStream.Feed("[") ──► PrivateStreamParser.Feed("[")
+  LeadingReasoningStream.Feed("De") ──► PrivateStreamParser.Feed("De")
+  ```
+- 但**它自己就是一个解析器**（有自己的 `Feed`/`Finish`、维护自己的可见文本），
+  **界面渲染的是它的输出** —— 只补出口 1 时，标记照样显示给玩家。
+- **判断"我是漏了它"的判据**：日志里 `已在显示出口剥掉交易标记` 与
+  `★标记穿透到 set_Reply` **成对出现**（说明确实剥到了），但玩家截图**仍有标记**。
+
+### 出口 3：`PrivateTurn.set_Reply` —— **渲染/存档前最后一个可拦截点**
+
+- 补丁：`PrivateReplyPatch`
+- 它同时承担两个用途：**新消息的显示**与**打开面板时历史消息的恢复**。
+- 它带两个诊断计数器：`SawMarkerCount`（穿透自检）与 `StrippedCount`（真剥到了几次）。
+  **两者一起涨而界面仍有标记 ⇒ 渲染源头不是这个字段，去查出口 2。**
+
+### 出口 4：**存档里已固化的历史文本**（补丁永远碰不到）
+
+- 位置：`Life/Mailbox/Conversations/<npcId>/Turns[N]/` 的 **`Reply` / `Reasoning` / `User`**
+- 这些轮次是**反序列化**出来的 —— 直接给字段赋值，**不经过任何 setter**，
+  所以出口 1~3 的补丁**都拦不到它们**。
+- 修法：`MailboxSanitizer` 在**第一次拿到 `CareerData`** 时把它内存里的会话树过一遍剥离
+  （挂在 `ShadowEconomyRuntime.WorldFor(CareerData)`，即私信路径上）。
+- **它不自己写原版存档文件**：改的是内存对象，游戏下一次正常存档时自然覆写干净。
+- 真机实测：`扫过 77 轮，清理了 53 个字段里的固化标记（共 17 段会话）` →
+  随后存档里含 `[Trade:` 的字符串 **53 → 0**，正文一字不少，影子账本一字未动。
+
+### 改这一块时的自检清单
+
+1. 三个补丁**都在启动行的补丁清单里**吗？（`Feed + Finish + LeadingReasoningStream.Feed + PrivateTurn.set_Reply`）
+2. `path-probe.log` 里目标方法上**有几个前缀**？（我们 1 个 + 观测探针 1 个）
+3. 有没有 `[Economy-Marker]` 日志？**没有日志时先确认日志器还活着**（见 §9 第 7 条），
+   不要默认"没打印 = 没执行"。
+4. 玩家截图（**唯一可信的最终判据**）里还有没有 `[Trade:` / `[Deal: accept]`？
 
 ### 回滚
 
@@ -483,7 +551,7 @@ Copy-Item 'D:\蓝色大肥鱼\NationalSpireEconomy\deploy\NationalSpireEconomy\N
    端到端用例要么用独立世界号，要么 `Clear` + `RememberPlayerTexts(…, [])` + `ResetNote`；
 4. **两套基线的先后顺序是硬约束**：零依赖先、含游戏引用最后，跑完核对 `bin` 哈希 == 交付包。
 
-### 第五步新踩到的（6 条）
+### 第五步新踩到的（8 条）
 
 5. **同一条出口的"身份"会因为筛选条件变化而整体错位** —— 本步写
    `AuditDayFallsBackWhenWaterLineIsZero` 时第一版用的是"同一张单结算两次"，
@@ -491,6 +559,37 @@ Copy-Item 'D:\蓝色大肥鱼\NationalSpireEconomy\deploy\NationalSpireEconomy\N
    **根本不经过写审计的那一段** —— 测了个空。
    教训：**断言之前先问"这个场景会走到我想要的那一行吗"**（§1.5.4 第 6 条的同一条病）；
    改法是用两个独立世界分别造两次"真的结算"。
+6. **★★ 一个"以为只有一条出口、其实有两条"的连续误判（本轮最贵，花了 4 个真机来回）**：
+   真机上玩家**始终**能看到 `[Trade: …]`（截图三次确认）。逐条排除的过程：
+   - 先在 `PrivateStreamParser.Feed` 剥 → 标记**确实被识别**、单也落了，但界面还有；
+   - 再在 `PrivateTurn.set_Reply` 剥（渲染前）→ 探针证实"**标记穿透到 set_Reply**"、
+     也**当场剥掉了**，但界面**还有**；
+   - 最后翻旁路探针才发现真相：真机有**两条并行的流式出口**，逐分片一一对应、参数逐字相同
+     （各 4369 次）：
+     ```
+     LeadingReasoningStream.Feed("[") ──► PrivateStreamParser.Feed("[")
+     LeadingReasoningStream.Feed("De") ──► PrivateStreamParser.Feed("De")
+     ```
+     而 `LeadingReasoningStream` **自己就是一个解析器**（有自己的 `Feed` + `Finish`），
+     界面渲染的是它的输出 —— 我们从来没给它打过补丁。
+   教训：**"证据显示我剥掉了"与"玩家看不到"是两件事**；
+   凡是"输入→加工→显示"的链路，必须用**旁路探针**（`path-probe.log`）确认**到底哪一条出口被渲染**，
+   而不是靠"我打了常见的那一个"。
+7. **★★ 一个会"永久闭嘴"的日志器（比没有日志更危险）**：
+   上面那条之所以绕了 4 个来回，一半原因是**日志在 `22:25:01` 之后彻底不再增长**
+   （旁路探针里的 `File.AppendAllText` 命中 **0 次**），于是每一轮排查都建立在假信息上。
+   根因是 `EconomyFileLogSink.TryAppend` 开头那句 `if (_disabled) return false;` ——
+   `_disabled` 一旦在所有候选落点写失败时被置位，就**永远不会**再打开。
+   已改为"**静默满 200 行自动重试**"，并在恢复那一行写明"已静默 N 行后自动重试"（丢了多少一眼可见）。
+   教训：**任何"失败即永久放弃"的开关，都必须有恢复路径**；否则它会安静地毁掉后续所有判断。
+8. **"存档里的既成事实"与"运行期新产生的文本"要走两条不同的修法**：
+   `[Trade: …]` 在补丁生效前就已经**写进了原版生涯存档**
+   （`Life/Mailbox/Conversations/<npcId>/Turns[N]/Reply|Reasoning|User`，实测 **53 处**），
+   而轮次是**反序列化**出来的 —— 直接给字段赋值，**不经过 `set_Reply`**，
+   所以渲染出口的补丁永远碰不到它们。
+   修法是另一个东西：`MailboxSanitizer` 在**第一次拿到 `CareerData`** 时把它内存里的会话树过一遍剥离
+   （见 §6.6）。真机实测：`扫过 77 轮，清理了 53 个字段里的固化标记（共 17 段会话）`，
+   随后游戏自己存档，存档里含 `[Trade:` 的字符串从 **53 处 → 0 处**，而正文一字不少。
 6. **`Audit` 那一行原先连 `Failed` 也写**，于是 `trade_settled` 不再等于"钱动过"，
    而 V 段的回读与对账的人都假设它等于。放开 `playerToNpc` 时顺手收紧了它
    —— **判据是"读者怎么理解这一行"，不是"写的时候方不方便"**；
@@ -530,21 +629,35 @@ Copy-Item 'D:\蓝色大肥鱼\NationalSpireEconomy\deploy\NationalSpireEconomy\N
 
 ## 10.5 新会话开场怎么发（**直接复制这段**）
 
-> 接手 NationalSpireEconomy 阶段 4 第五步。先读 `docs/HANDOFF-PHASE-4-STEP5.md`（同目录），
-> 它是本次的接手入口；需要背景时再按它的 §10 往上读。
+> 接手 NationalSpireEconomy。**先读 `docs/PROJECT-SUMMARY.md`（通读全貌），
+> 再读 `docs/HANDOFF-PHASE-4-STEP5.md`**（当前入口，含换版/验收步骤与代码地图）。
+> 需要更深的背景时按后者的 §10 文档地图往上读。
 >
-> 当前切点：**第五步（`playerToNpc` + D + E）代码已实施完**、
-> 基线零依赖 389 / 含游戏引用 516、三种构建 0 警告；新交付包 DLL 是 `7B593EF0…`（442880 字节），
-> 而**线上还是第三步那版 `C6F89483…`**（开关 `settlementWired: false`，
-> 且"开关已关"的那次重启已经做过了）。
+> **当前切点（2026-10-12 夜）—— 阶段 4 第五步已全部验收通过，无阻塞项：**
 >
-> **本轮唯一剩下的事是真机验收**，所以请先做三件事，**不要先改代码**：
-> ① 按 §1 核对线上/交付包两组哈希、按 §2① 跑两套基线（期望 389 / 516）；
-> ② 确认**游戏是否已完全退出**（§6.5 步骤 0 的独占写判据）；
-> ③ 我确认退出后，按 **§6.5** 换版 → 临时打开 `settlementWired` → 按 §6 的 ①②③ 验收 → 收尾关回去。
+> | 项 | 值 |
+> | --- | --- |
+> | 线上 / `bin` / `deploy` DLL | **三处一致**：`458752` 字节 / `08D7BFC65A30E842…` |
+> | 动钱开关 | 线上 `trade.settlementWired = **false**`（甲方拍板的长期默认值） |
+> | 方向闸 | 已开通 `npc_to_player` + `player_to_npc`；`npc_to_npc` 仍被挡 |
+> | 两套基线 | 零依赖 **391/391**、含游戏引用 **523/523**、三构建 **0 警告** |
+> | 真机验收 | ① 玩家→NPC 真掉钱 ② 打脸日志消失 ③ 余额一致 —— **全通过** |
+> | 交易标记 | **不再显示给玩家**（`[Trade: …]` / `[Deal: accept]` 在界面里都不见了） |
+> | 存档残留 | 清理器把 53 处固化标记清成 **0**，正文一字未损，影子账本一字未动 |
+> | git | 1 次提交 `15a6f71` + **19 改 / 4 增未提交**（甲方要求先不提交） |
 >
-> 另外本机有两个环境约定必须遵守（§1.5.1 的沙箱环境变量、§1.5.3 的沙箱限制），
-> 而换版/改线上 config 需要**一次授权升级**（`danger-full-access`）。
+> **下一步没有阻塞项。** 若要继续做功能，候选（按价值/成本）：
+> 1. **B 项：玩家发起交易**（现在只能 NPC 提出、玩家确认）；
+> 2. **2b：往聊天里补一条"已结算"账本事实** —— 需先与上游作者确认"往聊天写消息"的入口权限；
+> 3. **原版金额显示口径** —— 同一件跨模组协调的事，可与 2 一起谈；
+> 4. 物品交易 / 贷款 / 打赌（见 `HANDOFF-PHASE-4-STEP5.md` §4 与 `PROJECT-SUMMARY.md` §3 的难度排序）。
+>
+> **动手前必读两处**（否则极易重蹈覆辙）：
+> - **§6.6「交易标记的完整出口清单」** —— 标记有 **4 条出口**，只补一条会白跑真机；
+> - **§9 第 6/7 条** —— "两条并行流"与"日志器会永久静默"这两个坑各花了整整一轮。
+>
+> 另外本机有两条环境约定必须遵守（§1.5.1 沙箱环境变量、§1.5.3 沙箱限制），
+> 且**换版 / 改线上 config 需要一次 `danger-full-access` 授权升级**（文件在工作区外）。
 
 **为什么不再问那三个问题**：§3 已经拍板完毕（1(a) 接受分叉 / 单笔上限=影子余额、单日沿用现有配置 / 3(a) 硬失败），
 拍板结果与落地位置都记在 §3 的表里。

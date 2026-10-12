@@ -38,6 +38,10 @@ public static class PlanAInjectionTests
         LoadsWorldOnDemandForFirstPrivateMessage,
         ModelIntentBecomesReadOnlyPreview,
         PreviewAndSettlementUseTheSamePlayerBalance,
+        DisplayStripRemovesMarkerWithoutTouchingBody,
+        ReplyPatchStripsBeforeRenderAndSurvivesGarbage,
+        LeadingStreamPatchAlsoStripsMarkers,
+        MailboxSanitizerStripsPersistedReplyWithoutEatingProse,
         PlayerConfirmCommandIsHonouredWithoutMovingMoney,
         PlayerConfirmCommandSurvivesVanillaWrapper,
         PlayerConfirmSettlesWhenSwitchIsOn,
@@ -453,6 +457,232 @@ public static class PlanAInjectionTests
             "不该再因为「世界不在影子存档里」而跳过");
         TestRunner.Equal(5, messages.Count, "按需载入也不能改变 message 条数");
         Console.WriteLine("      · 按需载入结果：" + outcome.LogLine);
+    }
+
+    /// <summary>
+    /// <b>★ 2026-10-12 真机挖出的盲区的回归：显示出口必须把标记剥掉，且不能碰坏正文。</b>
+    /// <para>
+    /// <b>症状</b>：玩家在私信里看到了
+    /// <c>[Trade: 雇佣, Amount: 3000, Direction: playerToNpc]</c>，
+    /// 而这条补丁不存在时我们只在 <c>PrivateStreamParser.Feed</c> 上剥 —— 那是**另一个出口**。
+    /// </para>
+    /// <para>
+    /// 这条钉三件事：① 标记真的没了；② 正文一字不少；③ 三种"不能吞正文"的边界
+    /// （未闭合标记 / 括号里套别的标记 / 压根没有标记）都原样放行。
+    /// </para>
+    /// </summary>
+    private static void DisplayStripRemovesMarkerWithoutTouchingBody()
+    {
+        // ① 正常情形：标记被剥掉，前后的正文都在。
+        bool changed = TradeMarkerInterceptor.StripForDisplay(
+            "哦，那就是又加一小时。\n\n[Trade: 雇佣, Amount: 3000, Direction: playerToNpc]",
+            out string cleaned);
+        TestRunner.True(changed, "有标记时必须报告改动过");
+        TestRunner.NotContains(cleaned, "[Trade:", "★标记必须从正文里消失");
+        TestRunner.NotContains(cleaned, "playerToNpc", "标记的字段也不该留下");
+        TestRunner.Contains(cleaned, "又加一小时", "★正文必须一字不少");
+
+        // ② 没有标记：不动文本，也不报告改动（省掉无谓重建）。
+        changed = TradeMarkerInterceptor.StripForDisplay("就是一句普通的话", out cleaned);
+        TestRunner.False(changed, "没有标记时不该报告改动");
+        TestRunner.Equal("就是一句普通的话", cleaned, "没有标记时必须原样返回");
+
+        // ③ 未闭合的标记：**正文绝不能丢**（这是硬保证）。
+        //    注意这里刻意不断言"残缺标记一定会被剥掉"：
+        //      · 逐片流入时（Feed 路径）它会停在待定缓冲里、不显示给玩家；
+        //      · 而一次性剥离（StripMarkers → Flush）遇到"残缺但连内容都没有"的 `[Trade:`
+        //        时是【原样放行】的 —— 宁可让玩家看到半截语法，也不敢吞掉可能是正文的文本。
+        //    这条保守行为有 TradeProtocolTests 钉着，这里只钉"不吞正文"。
+        TestRunner.Contains(Strip("前面的话 [Trade: 雇佣, Amount"),
+            "前面的话", "★未闭合标记【之前】的正文绝不能丢");
+        TestRunner.Equal("前面的话 [Trade: 雇佣, Amount", Strip("前面的话 [Trade: 雇佣, Amount"),
+            "★残缺标记按原样放行（宁可露出半截语法，也不吞可能是正文的文本）");
+
+        // ④ 只有半个开头、连内容都没有：原样放行（什么都不该被当成标记处理）。
+        TestRunner.Equal("[Trade:", Strip("[Trade:"), "只有半截开头时必须原样放行");
+
+        // ⑤ 括号里套着别的标记：整组原样放行，不破坏原版自己的解析器。
+        TestRunner.Equal("[未知: [Trade: 赞助]]", Strip("[未知: [Trade: 赞助]]"),
+            "★认不出的括号组必须逐字保留（剥掉内层会破坏原版解析）");
+
+        // ⑥ 认不出的普通括号：原样放行。
+        TestRunner.Equal("[Match: something]", Strip("[Match: something]"),
+            "原版自己的标记必须原样放行，不能被我们碰");
+
+        // ⑦ 空/纯空白输入不抛异常、不报告改动。
+        TestRunner.Equal("", Strip(""));
+        TestRunner.Equal("   ", Strip("   "));
+
+        // ⑧ 畸形输入绝不抛异常 —— 它跑在原版渲染路径上，抛异常会毁掉整条私信。
+        //    这里刻意把 try/catch 收在同一次调用上：断言写在 catch 里面会把
+        //    "断言失败"误报成"抛异常"（这一版第一稿就是这么写错的）。
+        foreach (string junk in new[] { "[", "[[[", "]", "[]", "[Trade", "[Trade:", "[贸易: 1]" })
+        {
+            string? result = null;
+            Exception? thrown = null;
+            try { result = Strip(junk); }
+            catch (Exception e) { thrown = e; }
+
+            TestRunner.True(thrown == null,
+                $"★剥离畸形输入 <{junk}> 时抛异常：{thrown?.GetType().Name}: {thrown?.Message}");
+            TestRunner.True(result != null, $"畸形输入 <{junk}> 应返回一个字符串而不是 null");
+        }
+    }
+
+    /// <summary>跑一次显示出口的剥离，返回剥离后的正文（测试用的小包装）。</summary>
+    private static string Strip(string text)
+    {
+        TradeMarkerInterceptor.StripForDisplay(text, out string cleaned);
+        return cleaned;
+    }
+
+    /// <summary>
+    /// <b>★ 显示出口补丁的自证必须在"真机那条路"上做，而不是在解析器上做。</b>
+    /// <para>
+    /// 上一轮的教训：启动自证造了一个 <c>PrivateStreamParser</c> 并读它的 <c>Text</c>，
+    /// 一路绿灯，而玩家看的是 <c>PrivateTurn.Reply</c> —— 完全不同的出口。
+    /// 这条直接调<b>真实的</b> <c>set_Reply</c>，再读回 <c>Reply</c> 属性，
+    /// 于是"自证通过"这四个字这次是可信的。
+    /// </para>
+    /// <para>顺带钉住它对畸形输入不抛异常（它跑在原版渲染路径上，抛异常会毁掉整条私信）。</para>
+    /// </summary>
+    private static void ReplyPatchStripsBeforeRenderAndSurvivesGarbage()
+    {
+        Setup();
+
+        var target = PrivateReplyPatch.FindTargetType();
+        TestRunner.True(target != null, "★应能在已加载的原版程序集里找到 PrivateTurn（找不到就查不到泄漏）");
+        if (target == null) return;
+
+        TestRunner.True(PrivateReplyPatch.FindSetter(target) != null, "应能找到 set_Reply(string)");
+
+        // 真实 setter 上的自证：调它、再读回 Reply。
+        bool? ok = PrivateReplyPatch.SelfTest(target);
+        TestRunner.True(ok != null,
+            "★显示出口自证必须能跑（返回 null 说明 PrivateTurn 构造或 Reply 属性读取失败，" +
+            "那样我们就没有任何关于'玩家看到什么'的证据）");
+        TestRunner.True(ok == true, "★调真实 set_Reply 之后，Reply 里不该再有标记");
+    }
+
+    /// <summary>
+    /// <b>★ 存档里"已固化标记"的清理回归（2026-10-12）。</b>
+    /// <para>
+    /// 真机上玩家在私信里看到 <c>[Trade: …]</c>：新消息已被显示出口补丁剥掉，
+    /// 而<b>旧消息</b>的标记早在补丁生效前就写进了原版生涯存档
+    /// （<c>Life/Mailbox/Conversations/&lt;npcId&gt;/Turns[N]/Reply|Reasoning|User</c>，
+    /// 实测 53 处），并且是反序列化出来的 —— 不走 <c>set_Reply</c>，那个补丁碰不到。
+    /// </para>
+    /// <para>
+    /// 这条钉住清理器的核心行为：<b>标记被剥掉、正文一字不少、没有标记时一个字都不动</b>，
+    /// 并且属性与字段两种载体都要能处理（<c>Reply</c> 是属性、<c>Reasoning</c> 是字段）。
+    /// </para>
+    /// </summary>
+    private static void MailboxSanitizerStripsPersistedReplyWithoutEatingProse()
+    {
+        var turn = new FakeTurn
+        {
+            Reply = "又加一小时，行，钱到账就开练。\n\n[Trade: 雇佣, Amount: 3000, Direction: playerToNpc]",
+            Reasoning = "The player wants another hour. Include [Trade: 雇佣, Amount: 3000, Direction: playerToNpc]",
+            User = "我雇你一小时，3000。[Trade: 雇佣, Amount: 3000]"
+        };
+
+        TestRunner.True(MailboxSanitizer.StripFieldInPlace(turn, "Reply"), "★Reply 里的标记应被剥掉");
+        TestRunner.NotContains(turn.Reply, "[Trade:", "★Reply 不该再有标记");
+        TestRunner.Contains(turn.Reply, "钱到账就开练", "★正文必须一字不少");
+        TestRunner.Contains(turn.Reply, "又加一小时", "★正文开头也要在");
+
+        TestRunner.True(MailboxSanitizer.StripFieldInPlace(turn, "Reasoning"),
+            "★Reasoning 是【字段】而不是属性，也要能处理");
+        TestRunner.NotContains(turn.Reasoning, "[Trade:", "字段里的标记同样要剥掉");
+        TestRunner.Contains(turn.Reasoning, "another hour", "字段的正文也不能丢");
+
+        TestRunner.True(MailboxSanitizer.StripFieldInPlace(turn, "User"), "玩家那一行里的标记也要剥");
+        TestRunner.Contains(turn.User, "我雇你一小时", "玩家正文要保留");
+
+        // 幂等：再跑一次不该报告改动，也不该改坏文本。
+        string before = turn.Reply;
+        TestRunner.False(MailboxSanitizer.StripFieldInPlace(turn, "Reply"), "第二次跑应报告「没改动」");
+        TestRunner.Equal(before, turn.Reply, "幂等：文本不该被再动一次");
+
+        // 没有标记的正文：一个字都不许动。
+        var clean = new FakeTurn { Reply = "就是一句普通的话，没有任何标记。" };
+        TestRunner.False(MailboxSanitizer.StripFieldInPlace(clean, "Reply"), "没有标记时不该报告改动");
+        TestRunner.Equal("就是一句普通的话，没有任何标记。", clean.Reply, "★没有标记时必须逐字不改");
+
+        // 原版自己的标记原样放行（绝不能误伤 Match/Favour 这些）。
+        var vanilla = new FakeTurn { Reply = "[Match: 结果] 我方获胜。" };
+        TestRunner.False(MailboxSanitizer.StripFieldInPlace(vanilla, "Reply"), "原版标记不该被当成交易标记");
+        TestRunner.Equal("[Match: 结果] 我方获胜。", vanilla.Reply, "★原版标记必须逐字保留");
+
+        // 成员不存在 / 类型不对：安静返回 false，不抛异常。
+        TestRunner.False(MailboxSanitizer.StripFieldInPlace(clean, "不存在的成员"), "不存在的成员应返回 false");
+        TestRunner.False(MailboxSanitizer.StripFieldInPlace(null, "Reply"), "null 目标应返回 false");
+        TestRunner.False(MailboxSanitizer.StripFieldInPlace(clean, ""), "空成员名应返回 false");
+    }
+
+    /// <summary>
+    /// <b>★ 并行可见流的补丁回归（2026-10-12 第二轮实测）。</b>
+    /// <para>
+    /// 真机截图证实玩家仍看到 <c>[Trade: …]</c> 与 <c>[Deal: accept]</c>，
+    /// 而探针显示真机有<b>两条并行的流式出口</b>、参数逐字相同（各 4369 次）：
+    /// <c>LeadingReasoningStream.Feed</c> 与 <c>PrivateStreamParser.Feed</c>。
+    /// 我们原先只给后者打补丁，于是前者累积的文本把标记带到了界面上。
+    /// </para>
+    /// <para>
+    /// 这条钉住：① 本版确实存在这个类型（不存在就说明原版改名了，必须显式知道）；
+    /// ② 它的 <c>Feed</c> 前缀真的会把标记从入参里剥掉；③ 正文一字不少。
+    /// </para>
+    /// </summary>
+    private static void LeadingStreamPatchAlsoStripsMarkers()
+    {
+        var target = LeadingStreamPatch.FindTargetType();
+        TestRunner.True(target != null,
+            "★应能找到 NationalSpire.LeadingReasoningStream（它是真机上第二条并行的可见流出口）");
+        if (target == null) return;
+
+        var feed = target.GetMethod(LeadingStreamPatch.FeedMethodName,
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance,
+            null, [typeof(string)], null);
+        TestRunner.True(feed != null, "应能找到 Feed(string)（与 PrivateStreamParser 同名同签名）");
+
+        // 前缀的行为：传引用进去、拿出剥好的文本。
+        // 直接调 FeedPrefix 是最贴近真机的做法 —— 它就是 Harmony 会调的那个方法。
+        string chunk = "钱到账了时间你定，别到时候又鸽我。\n\n[Trade: 赞助, Amount: 2000, Direction: playerToNpc]";
+        LeadingStreamPatch.FeedPrefix(ref chunk);
+
+        TestRunner.NotContains(chunk, "[Trade:", "★并行可见流的入参里不该再有交易标记");
+        TestRunner.NotContains(chunk, "playerToNpc", "标记的字段也不该留下");
+        TestRunner.Contains(chunk, "别到时候又鸽我", "★正文必须一字不少");
+
+        // 没有标记时不许改文本。
+        string clean = "就是一句普通的话";
+        LeadingStreamPatch.FeedPrefix(ref clean);
+        TestRunner.Equal("就是一句普通的话", clean, "没有标记时不该动文本");
+
+        // 畸形输入也不许抛（它跑在原版流式解析路径上）。
+        foreach (string junk in new[] { "", "[", "[Trade:", "[未知: [Trade: 赞助]]" })
+        {
+            string probe = junk;
+            try { LeadingStreamPatch.FeedPrefix(ref probe); }
+            catch (Exception e)
+            {
+                TestRunner.True(false, $"★剥离畸形输入 <{junk}> 时抛异常：{e.GetType().Name}");
+            }
+        }
+    }
+
+    /// <summary>测试用的最小"轮次"替身：一个可写属性 + 一个可写字段 + 一个可写属性。</summary>
+    private sealed class FakeTurn
+    {
+        public string Reply { get; set; } = "";
+
+        // 故意用字段：真机上 Reasoning 可写载体是字段还是属性随原版版本，
+        // 清理器必须两种都认（这条用例就是钉住"字段那条路"）。
+#pragma warning disable CS0649 // 只由反射写入，编译器看不出赋值
+        public string Reasoning = "";
+#pragma warning restore CS0649
+
+        public string User { get; set; } = "";
     }
 
     /// <summary>
