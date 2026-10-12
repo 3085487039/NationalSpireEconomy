@@ -1,0 +1,42 @@
+{
+  "_comment": "交易目录的示例数据。【本期未接线】——CatalogValidator 使用的是 NullTradeCatalog，任何 ItemId 都解析不出，于是所有 [Buy: ...] 都会被明确拒绝。这是刻意的：宁可拒绝，也不要静默放行一笔买不到东西的扣款。等后续「购买物品」活动落地时，实现一个读本文件的 ITradeCatalog 并在 TradeContext.Catalog 里传进去即可。",
+  "_schema": {
+    "id": "唯一 id，与 [Buy: ..., ItemId: xxx] 里的 ItemId 对应",
+    "name": "显示名",
+    "unitPriceUsd": "单价，美元整数（换算只走 MoneyUnits，这里不出现内部单位）",
+    "currency": "固定 USD",
+    "stock": "库存，-1 表示无限",
+    "tags": "人话标签，用于 UI 速读",
+    "effectKeys": "购买成功后要触发的副作用键，对应 ITradeEffectHandler.EffectKey"
+  },
+
+  "items": [
+    {
+      "id": "potion_energy",
+      "name": "能量药水",
+      "unitPriceUsd": 3000,
+      "currency": "USD",
+      "stock": -1,
+      "tags": ["消耗品", "礼物"],
+      "effectKeys": ["inventory.grant"]
+    },
+    {
+      "id": "coach_voucher",
+      "name": "陪练券",
+      "unitPriceUsd": 20000,
+      "currency": "USD",
+      "stock": 10,
+      "tags": ["服务", "成绩"],
+      "effectKeys": ["inventory.grant", "mood.boost"]
+    },
+    {
+      "id": "sponsor_banner",
+      "name": "赞助横幅位",
+      "unitPriceUsd": 50000,
+      "currency": "USD",
+      "stock": 3,
+      "tags": ["名誉", "赞助"],
+      "effectKeys": ["inventory.grant"]
+    }
+  ]
+}

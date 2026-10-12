@@ -1,0 +1,51 @@
+# ── 构建产物 ────────────────────────────────────────────────
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+
+# NuGet 还原时自动生成的迁移标记（空文件，属脚手架垃圾，不进仓库）
+NuGet/
+tests/**/NuGet/
+
+# ── 本地调试/探针产物 ───────────────────────────────────────
+# PathProbe 逐帧轮询会写出很大的日志，绝不能进仓库
+probe/
+*.log
+mod-debug.log
+path-probe.log
+
+# ── 本地配置覆盖（正式配置在 config/，要提交）───────────────
+# 玩家本地改过的配置、以及历次备份，都不该进仓库
+config/*.bak
+config/*.bak-*
+config/*.old-*
+*.bak-before-*
+*.bak-before-flip
+
+# ── 部署与发布产物（含 DLL / ZIP）───────────────────────────
+# deploy/ 是 build-deploy.ps1 的输出；release/ 是面向玩家的发布包。
+# 二进制与压缩包提交进 Git 会永久膨胀仓库，且与 GitHub Releases 资产重复。
+# 只保留 deploy/DEPLOY.md（部署说明是文档，不是产物）。
+deploy/*
+!deploy/DEPLOY.md
+release/
+SHA256SUMS-release.txt
+
+# ── 线上部署目录的备份 DLL（体积大、且是二进制快照）─────────
+deploy/**/*.old-*.dll
+deploy/**/*.round*.dll
+*.old-*.dll
+
+# ── 编辑器 / 系统 ──────────────────────────────────────────
+.vs/
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+
+# ── 测试与工具的临时落点 ───────────────────────────────────
+TestResults/
+*.trx

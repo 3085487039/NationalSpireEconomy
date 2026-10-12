@@ -1,0 +1,232 @@
+{
+  "configVersion": 1,
+  "_comment": "性格 → 经济画像映射表。Kind 取值来自 NationalSpire 的 PersonalityLibrary.Kinds（ExpandedPersonality.cs 的 Dispositions，共 24 种），必须逐一覆盖；未列出的 Kind 回退到 defaults。所有系数都只影响‘意愿与相对量级’，绝对量级由 economy_config.json 的财富档位决定。",
+
+  "defaults": {
+    "give": 1.0,
+    "charitySensitivity": 0.5,
+    "bargain": 0.5,
+    "thrift": 0.5,
+    "borrow": false,
+    "initiative": 0.5,
+    "tags": ["普通"]
+  },
+
+  "favorTiers": {
+    "_comment": "好感度(PrivateMessages.Favour, -100..100) → 档位。charityMultiplier 乘进 charitySensitivity；line 指定用哪套拒绝台词。",
+    "tiers": [
+      { "id": "stranger", "min": -100, "max": 19, "charityMultiplier": 1.00, "line": "sharp" },
+      { "id": "familiar", "min": 20, "max": 49, "charityMultiplier": 0.70, "line": "sharp" },
+      { "id": "close", "min": 50, "max": 79, "charityMultiplier": 0.40, "line": "gentle" },
+      { "id": "intimate", "min": 80, "max": 200, "charityMultiplier": 0.10, "line": "gentle" }
+    ],
+    "_note": "高好感仍可拒绝：采用 gapRatio 判据（金额相对余额的比例），而非固定金额门槛。"
+  },
+
+  "_note_capFormula": "实际上限 = balance × tierCapRatio × give × (1 - 0.4 × thrift)；实际下限 = 基准上限 × minRatio × (0.5 + charitySensitivity × favorTierMultiplier)",
+
+  "kinds": {
+    "暴躁喷子": {
+      "give": 0.55, "charitySensitivity": 0.85, "bargain": 0.30, "thrift": 0.70,
+      "borrow": false, "initiative": 0.40,
+      "tags": ["好斗", "不收施舍"]
+    },
+    "尖刻挑刺者": {
+      "give": 0.40, "charitySensitivity": 0.88, "bargain": 0.35, "thrift": 0.80,
+      "borrow": false, "initiative": 0.30,
+      "tags": ["刻薄", "斤斤计较"]
+    },
+    "战绩踩头者": {
+      "give": 0.65, "charitySensitivity": 0.82, "bargain": 0.70, "thrift": 0.55,
+      "borrow": false, "initiative": 0.45,
+      "tags": ["骄傲", "用钱比高低"]
+    },
+    "打法优越者": {
+      "give": 0.60, "charitySensitivity": 0.78, "bargain": 0.60, "thrift": 0.50,
+      "borrow": false, "initiative": 0.35,
+      "tags": ["矜持", "只认专业"]
+    },
+    "嘴硬争胜者": {
+      "give": 0.55, "charitySensitivity": 0.80, "bargain": 0.85, "thrift": 0.60,
+      "borrow": false, "initiative": 0.35,
+      "tags": ["好胜", "爱讨价"]
+    },
+    "嫉妒比较者": {
+      "give": 0.45, "charitySensitivity": 0.70, "bargain": 0.55, "thrift": 0.75,
+      "borrow": false, "initiative": 0.30,
+      "tags": ["酸", "怕被比下去"]
+    },
+    "怨气抱怨者": {
+      "give": 0.35, "charitySensitivity": 0.60, "bargain": 0.60, "thrift": 0.88,
+      "borrow": true, "initiative": 0.20,
+      "tags": ["拮据", "爱抱怨"]
+    },
+    "反感说教者": {
+      "give": 0.50, "charitySensitivity": 0.76, "bargain": 0.45, "thrift": 0.65,
+      "borrow": false, "initiative": 0.30,
+      "tags": ["抵触", "不领情"]
+    },
+    "狂热拥护者": {
+      "give": 1.35, "charitySensitivity": 0.05, "bargain": 0.20, "thrift": 0.15,
+      "borrow": false, "initiative": 0.80,
+      "tags": ["慷慨", "狂热"]
+    },
+    "护短熟人": {
+      "give": 1.10, "charitySensitivity": 0.15, "bargain": 0.25, "thrift": 0.45,
+      "borrow": false, "initiative": 0.60,
+      "tags": ["护短", "讲义气"]
+    },
+    "夸张吹捧者": {
+      "give": 1.45, "charitySensitivity": 0.05, "bargain": 0.35, "thrift": 0.20,
+      "borrow": false, "initiative": 0.75,
+      "tags": ["豪爽", "爱炫耀"]
+    },
+    "热心同好": {
+      "give": 1.25, "charitySensitivity": 0.10, "bargain": 0.15, "thrift": 0.30,
+      "borrow": false, "initiative": 0.70,
+      "tags": ["慷慨", "提携后辈"]
+    },
+    "兴奋追随者": {
+      "give": 1.15, "charitySensitivity": 0.12, "bargain": 0.20, "thrift": 0.35,
+      "borrow": false, "initiative": 0.78,
+      "tags": ["慷慨", "凑热闹"]
+    },
+    "较真维护者": {
+      "give": 0.95, "charitySensitivity": 0.35, "bargain": 0.75, "thrift": 0.50,
+      "borrow": false, "initiative": 0.45,
+      "tags": ["较真", "明算账"]
+    },
+    "自我炫耀者": {
+      "give": 0.90, "charitySensitivity": 0.72, "bargain": 0.55, "thrift": 0.40,
+      "borrow": false, "initiative": 0.55,
+      "tags": ["骄傲", "要面子"]
+    },
+    "故意挑事者": {
+      "give": 0.55, "charitySensitivity": 0.45, "bargain": 0.90, "thrift": 0.60,
+      "borrow": false, "initiative": 0.30,
+      "tags": ["贪婪", "要分成"]
+    },
+    "反串拱火者": {
+      "give": 0.50, "charitySensitivity": 0.40, "bargain": 0.70, "thrift": 0.55,
+      "borrow": false, "initiative": 0.45,
+      "tags": ["拱火", "爱阴阳"]
+    },
+    "看戏起哄者": {
+      "give": 0.70, "charitySensitivity": 0.25, "bargain": 0.80, "thrift": 0.65,
+      "borrow": false, "initiative": 0.45,
+      "tags": ["贪婪", "看热闹"]
+    },
+    "反骨抬杠者": {
+      "give": 0.55, "charitySensitivity": 0.55, "bargain": 0.65, "thrift": 0.70,
+      "borrow": false, "initiative": 0.35,
+      "tags": ["抬杠", "不随大流"]
+    },
+    "自认客观者": {
+      "give": 0.65, "charitySensitivity": 0.50, "bargain": 0.60, "thrift": 0.55,
+      "borrow": false, "initiative": 0.35,
+      "tags": ["自持", "讲道理"]
+    },
+    "刻薄玩笑者": {
+      "give": 0.60, "charitySensitivity": 0.50, "bargain": 0.50, "thrift": 0.55,
+      "borrow": false, "initiative": 0.40,
+      "tags": ["爱调侃"]
+    },
+    "不服输挑战者": {
+      "give": 0.80, "charitySensitivity": 0.45, "bargain": 0.55, "thrift": 0.45,
+      "borrow": false, "initiative": 0.55,
+      "tags": ["好胜", "愿为挑战花钱"]
+    },
+    "直率求助者": {
+      "give": 0.85, "charitySensitivity": 0.25, "bargain": 0.30, "thrift": 0.60,
+      "borrow": false, "initiative": 0.50,
+      "tags": ["直率", "好说话"]
+    },
+    "自嘲找同伴者": {
+      "give": 0.80, "charitySensitivity": 0.20, "bargain": 0.25, "thrift": 0.70,
+      "borrow": true, "initiative": 0.40,
+      "tags": ["拮据", "同病相怜"]
+    }
+  },
+
+  "refusalLines": {
+    "charity": {
+      "_comment": "玩家给 NPC 的钱低于实际下限时的拒绝台词。sharp 用于 stranger/familiar，gentle 用于 close/intimate。",
+      "sharp": {
+        "暴躁喷子": "就这点？你是来打发要饭的？",
+        "尖刻挑刺者": "这点钱也拿得出手，你自己不觉得寒酸吗。",
+        "战绩踩头者": "我还不至于收这么点东西，你先看看我什么成绩。",
+        "打法优越者": "拿钱来找我说话，你是不是找错人了。",
+        "嘴硬争胜者": "这个数我要是收了，以后还怎么跟你争。",
+        "嫉妒比较者": "你是不是觉得我就值这个价。",
+        "怨气抱怨者": "这点钱连我一天的开销都不够，你还挺大方。",
+        "反感说教者": "别拿钱堵我的嘴，我不吃这一套。",
+        "狂热拥护者": "我支持你是因为你打得好，不是因为你给钱。",
+        "护短熟人": "咱们之间用不着这个，收起来。",
+        "夸张吹捧者": "就这个数？我夸你一句都不止这个价。",
+        "热心同好": "钱你留着，有这份心就够了。",
+        "兴奋追随者": "我不用你给钱，你带我打两把比什么都强。",
+        "较真维护者": "一笔一笔算清楚，这个数对不上我要说的话。",
+        "自我炫耀者": "这点钱是在羞辱我吗。",
+        "故意挑事者": "这点钱还不够我替你说话的，你自己算算该加多少。",
+        "反串拱火者": "行啊，这么大手笔，我可记下来了。",
+        "看戏起哄者": "就这个数？行吧，那我看看你后面还能整出什么。",
+        "反骨抬杠者": "我凭什么收你的钱。",
+        "自认客观者": "这个金额和你想办的事不匹配，我不接。",
+        "刻薄玩笑者": "这点钱够我笑一整天的。",
+        "不服输挑战者": "要给我钱，先赢我一局再说。",
+        "直率求助者": "我问你的是打法，不是要你的钱。",
+        "自嘲找同伴者": "你这钱我还真不好意思收，我自己也紧。",
+        "default": "这点钱你先收着吧。"
+      },
+      "gentle": {
+        "暴躁喷子": "你这份心我领了，钱你自己留着。",
+        "尖刻挑刺者": "心意我收到了，不用这样。",
+        "战绩踩头者": "咱俩不用这个，你留着买点什么不好。",
+        "打法优越者": "你的意思我明白，钱收回去。",
+        "嘴硬争胜者": "这次就算了，下次别来这套。",
+        "嫉妒比较者": "我知道你是好意，但真不用。",
+        "怨气抱怨者": "你能这么说我就挺高兴，钱自己留着吧。",
+        "反感说教者": "我懂你意思，钱你拿回去。",
+        "狂热拥护者": "你能想到我就够了，这钱我不能收。",
+        "护短熟人": "自己人还来这个，收起来。",
+        "夸张吹捧者": "你能记着我，比什么都强，钱拿回去。",
+        "热心同好": "心意领了，自己留着花吧。",
+        "兴奋追随者": "你别给我钱啊，咱俩一起打两把就行。",
+        "较真维护者": "咱俩的交情不用记在账上。",
+        "自我炫耀者": "你这份心比钱值钱，收着吧。",
+        "故意挑事者": "行，这次算你有心，钱先放着。",
+        "反串拱火者": "你对我这么好，我都不好意思了。",
+        "看戏起哄者": "你有心了，这钱留着请自己吃饭。",
+        "反骨抬杠者": "咱俩之间不用扯这个。",
+        "自认客观者": "心意到了就行，金额什么的没必要。",
+        "刻薄玩笑者": "你这是想让我以后不好意思损你？钱收回去。",
+        "不服输挑战者": "你留着，等你赢我一局再说。",
+        "直率求助者": "谢谢你，但真不用给钱。",
+        "自嘲找同伴者": "你比我还紧呢，咱俩谁也别给谁了。",
+        "default": "心意领了，自己留着花吧。"
+      }
+    },
+
+    "cap": {
+      "_comment": "NPC 想给玩家但超过性格上限时的议价台词。{suggested} 会被替换成建议金额。",
+      "故意挑事者": "这个数我得再想想，至少得加到 {suggested}。",
+      "嘴硬争胜者": "你开的价我认一半，剩下的一半看你怎么说服我。",
+      "看戏起哄者": "这么大的数我拿不出来，你先降一点我再考虑。",
+      "自我炫耀者": "我出得起，但我不会一次给这么多。",
+      "夸张吹捧者": "我倒是想给你，可这个数也太夸张了。",
+      "default": "这个金额有点太夸张了。"
+    },
+
+    "soft": {
+      "_comment": "余额不足的软失败。不落 TradeOffer、不弹 UI 提示，只作为 InjectLine 注入下一轮 V 段。default 给台词原文；性格变体给‘语气方向’，由模型自行措辞，避免机械复述。",
+      "defaultLine": "囊中羞涩，只能口头支持。",
+      "byKind": {
+        "怨气抱怨者": "抱怨自己这个赛季都快揭不开锅了。",
+        "自我炫耀者": "声称手头一时周转不开，不想在不宽裕的时候出手。",
+        "热心同好": "表示想帮上忙，但自己现在确实拿不出这笔钱。",
+        "直率求助者": "直说自己现在拿不出这笔钱。",
+        "自嘲找同伴者": "拿自己手头紧这件事开玩笑。"
+      }
+    }
+  }
+}

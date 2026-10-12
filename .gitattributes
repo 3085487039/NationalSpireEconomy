@@ -1,0 +1,19 @@
+# 统一换行：仓库内一律用 LF 存储，避免 Windows/Linux 贡献者的 diff 互相打架。
+* text=auto eol=lf
+
+# C# 源码（按扩展名再明确一次，README 等文档也走 text=auto）
+*.cs     text diff=csharp
+*.csproj text
+*.json   text
+*.md     text
+*.ps1    text
+
+# 二进制：绝不做换行转换，也不参与 diff
+*.dll    binary
+*.pck    binary
+*.png    binary
+*.jpg    binary
+*.zip    binary
+
+# 让 GitHub 语言统计正确：把 docs/ 从"文档"归类里排除掉对语言占比的干扰
+docs/**  linguist-documentation

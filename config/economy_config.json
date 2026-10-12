@@ -1,0 +1,150 @@
+{
+  "configVersion": 1,
+  "_comment": "NPC 经济系统的数值配置。改完保存即可热重载，不必重启游戏。金额单位一律为美元整数（内部单位换算由 MoneyUnits 统一处理，这里不出现内部单位）。",
+
+  "seeding": {
+    "_comment": "初始资金播种。tier 的匹配顺序为 roles 精确命中 → identitiesContains → ratingAtLeast 兜底 → 无条件兜底项。curve 用 log-uniform 让金额按数量级铺开，而不是挤在区间高端。",
+    "maxWealth": 500000,
+    "curve": "log-uniform",
+    "tiers": [
+      {
+        "id": "crowd",
+        "roles": ["普通玩家"],
+        "min": 500,
+        "max": 5000,
+        "weight": 62
+      },
+      {
+        "id": "youth",
+        "roles": ["青训选手"],
+        "min": 8000,
+        "max": 30000,
+        "weight": 12
+      },
+      {
+        "id": "media",
+        "roles": ["主播", "解说员", "赛事记者", "教练"],
+        "min": 5000,
+        "max": 40000,
+        "weight": 10
+      },
+      {
+        "id": "veteran",
+        "roles": ["退役选手"],
+        "min": 20000,
+        "max": 120000,
+        "weight": 2
+      },
+      {
+        "id": "professional",
+        "_comment": "预算复核两次：原 50000~200000 的期望约 $108k，职业档 216 人吃掉 $23.4M（占总量 67%）。先收到 30000~120000 得人均 $14,135（略低于 1.6 万目标），再抬上限到 160000，实测人均约 $16,003。",
+        "roles": ["职业选手"],
+        "min": 30000,
+        "max": 160000,
+        "weight": 12
+      },
+      {
+        "id": "elite",
+        "roles": ["世界顶尖"],
+        "min": 200000,
+        "max": 500000,
+        "weight": 2
+      },
+      {
+        "id": "default",
+        "_comment": "无条件兜底：以上都未命中时使用，保证任何新出现的 Role 都有合理金额。",
+        "min": 1000,
+        "max": 20000,
+        "weight": 0.0001
+      }
+    ]
+  },
+
+  "season": {
+    "_comment": "赛季收支。工资按 tier 发；实际上限 = balance × tierCapRatio × give × (1 - 0.4 × thrift)；实际下限 = 基准上限 × minRatio × (0.5 + charitySensitivity × favorMultiplier)。",
+    "_comment2": "daysPerSeason 只用于由天数推导赛季号（原版长赛季 84 天、短赛季 28 天；此处取长赛季，短赛季时由接线层覆盖）。salaryPayoutMode 决定工资在新赛季第几天发放。",
+    "daysPerSeason": 84,
+    "salaryPayoutMode": "seasonStart",
+    "salaryByTier": {
+      "crowd": 600,
+      "media": 6000,
+      "youth": 9000,
+      "veteran": 15000,
+      "professional": 24000,
+      "elite": 60000,
+      "default": 3000
+    },
+    "tierCapRatio": {
+      "crowd": 0.25,
+      "media": 0.40,
+      "youth": 0.35,
+      "veteran": 0.45,
+      "professional": 0.50,
+      "elite": 0.70,
+      "default": 0.30
+    },
+    "minRatio": {
+      "crowd": 0.02,
+      "media": 0.04,
+      "youth": 0.03,
+      "veteran": 0.05,
+      "professional": 0.08,
+      "elite": 0.15,
+      "default": 0.03
+    },
+    "transferFeeRatingTimes": 5,
+    "transferFeeClamp": [40000, 100000],
+    "signingFeeRatio": 0.2,
+    "prizeUsd": {
+      "local": 1000,
+      "city": 2000,
+      "academy": 1500,
+      "open": 2600,
+      "league": 2600,
+      "continental": 4000,
+      "worldcup": 8000,
+      "worldfinal": 50000,
+      "masters": 50000
+    },
+    "extremeGapRatio": 0.0005
+  },
+
+  "trade": {
+    "_comment": "交易引擎的边界。allowedKinds 是唯一白名单，不在其中的 Kind 一律拒绝。",
+    "_commentDailyLimit": "dailyLimitPerNpc 必须为正整数。配置层会拦下非正值；运行期对 0 或负数做兜底处理（视为不限制），保证坏配置不会让交易彻底瘫痪。",
+    "minAmount": 100,
+    "maxSingleAmount": 200000,
+    "dailyLimitPerNpc": 3,
+    "offerExpiryDays": 14,
+    "npcPayoutRequiresBalance": true,
+    "requireFavourForNpcPayout": 0,
+    "allowedKinds": ["赞助", "打赏", "雇佣", "奖金", "转账", "借款"],
+    "_commentKindDirections": "Kind → 资金方向（意图补全用）。真机实测：模型只发 [Trade: 赞助, Amount: 5000] 时协议层不猜方向，必须有这个映射，否则被 BAD_SHAPE 挡下。取值只能 npcToPlayer / playerToNpc / npcToNpc；标记里显式写了 Direction: 时以标记为准；没配到的 Kind 一律拒绝（绝不猜钱的方向）。",
+    "kindDirections": {
+      "赞助": "npcToPlayer",
+      "打赏": "npcToPlayer",
+      "奖金": "npcToPlayer",
+      "雇佣": "playerToNpc",
+      "借款": "npcToPlayer",
+      "转账": "playerToNpc"
+    },
+    "auditEnabled": true,
+
+    "_commentSettlement": "★动钱开关（阶段 4 第二步）。false = 双方确认后停在「双方已确认，待结算」，一分钱不动（默认，与第一阶段行为完全一致）；true = 双方确认后立即结算：NPC 余额真的减少、玩家影子余额真的增加、并往 audit 目录追加一行。改完重启游戏生效；每次启动的日志里都会写明当前是接线还是未接线。",
+    "settlementWired": false,
+
+    "_commentEmotion": "情绪值 = amount / max(500, balance × 0.10)。NPC 出钱时低于 minEmotionToAccept 视为“这点钱是在羞辱我吗”，即使金额在性格上限内也拒绝。",
+    "minEmotionToAccept": 1.0,
+
+    "_commentSoft": "true = NPC 出钱但余额不足时不落 TradeOffer、不弹硬报错，只把一句素材写进 PendingVoice，让模型用自己的口吻说出来。",
+    "softFailOnBalance": true
+  },
+
+  "injection": {
+    "_comment": "注入开关。模板正文在 ai_prompt_economy.json；此处只控制是否启用稳定段与易变段。两个开关并列，不是主从关系：只注入 S 段就把 volatileEnabled 关掉，反之亦然。两段各自在 ai_prompt_economy.json 里还有一份同名开关（那边的值是字符串），两边都开才注入。",
+    "stableEnabled": true,
+    "volatileEnabled": true,
+    "_commentProbe": "挂载点体检（方案 D，排障用）。true 时启动期打印程序集/类型副本清单与诊断通道绑定结论，并给 RequestPrivateAsync / Compose / Context / Feed 挂上只观测不改数据的探针；玩家推进一天时会在 [Economy-Tick] 行附带四个探针的命中计数。确认完挂载点后可以改成 false。",
+    "probeEnabled": true
+  }
+}

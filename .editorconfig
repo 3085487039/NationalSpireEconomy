@@ -1,0 +1,32 @@
+# 全仓库编辑器约定。
+# 目的只有一个：让不同人提交的 C# 不会因为缩进/换行/编码差异产生噪声 diff。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# C# / 项目文件
+[*.{cs,csproj,props,targets}]
+indent_size = 4
+
+# JSON（配置与存档格式，一律 2 空格）
+[*.json]
+indent_size = 2
+
+# Markdown 刻意允许行尾空格（两个空格 = 换行，是 markdown 语法）
+[*.md]
+trim_trailing_whitespace = false
+indent_size = 2
+
+# PowerShell
+[*.ps1]
+indent_size = 4
+
+# 这些要保留原样
+[*.{dll,pck,png,jpg}]
+insert_final_newline = false

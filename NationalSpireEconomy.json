@@ -1,0 +1,12 @@
+{
+  "id": "NationalSpireEconomy",
+  "name": "国运尖塔 · NPC 经济系统",
+  "author": "NationalSpireEconomy",
+  "description": "为国运尖塔的 NPC 引入资金、工资、转会费与交易系统。独立的适配模组，不修改 NationalSpire 本体。",
+  "version": "0.1.0",
+  "min_game_version": "0.107.1",
+  "has_pck": false,
+  "has_dll": true,
+  "dependencies": [],
+  "affects_gameplay": false
+}

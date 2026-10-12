@@ -1,0 +1,81 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>NationalSpireEconomy.Tests</AssemblyName>
+    <RootNamespace>NationalSpireEconomy.Tests</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+
+    <!--
+      游戏引用开关。阶段 0/1 的适配层要真的构造 CareerPerson、断言投影结果，
+      所以测试工程也得能看见这些类型。默认关闭时整套测试仍然零依赖可跑。
+    -->
+    <GameRefsEnabled Condition="'$(GameRefsEnabled)' == ''">false</GameRefsEnabled>
+    <Sts2Dir Condition="'$(Sts2Dir)' == ''">D:\Steam\steamapps\common\Slay the Spire 2</Sts2Dir>
+    <Sts2DataDir>$(Sts2Dir)\data_sts2_windows_x86_64</Sts2DataDir>
+    <ModsDir>$(Sts2Dir)\mods</ModsDir>
+    <!-- 必须规范化为绝对路径：HintPath 里的 "..\.." 不会被解析。 -->
+    <SteamAppsDir Condition="'$(SteamAppsDir)' == ''">$([System.IO.Path]::GetFullPath('$(Sts2Dir)\..\..'))</SteamAppsDir>
+    <NseSts2AppId Condition="'$(NseSts2AppId)' == ''">2868840</NseSts2AppId>
+  </PropertyGroup>
+
+  <!--
+    与主工程同一套解析规则，保证"编译期看到的 NationalSpire"就是"运行时被加载的那一份"。
+    原版按 id 取版本号大者：创意工坊版会禁用本地版，所以这里也优先创意工坊。
+    引用在目标里添加（项目级 ItemGroup 求值时 NseNationalSpirePath 还没算出来）。
+  -->
+  <Target Name="NseResolveNationalSpire" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <_NseWsCandidate Include="$(SteamAppsDir)\workshop\content\$(NseSts2AppId)\*\NationalSpire.dll" />
+      <_NseLocalCandidate Include="$(ModsDir)\NationalSpire\NationalSpire.dll" />
+    </ItemGroup>
+    <PropertyGroup Condition="'$(NseNationalSpirePath)' == '' and '@(_NseWsCandidate)' != ''">
+      <NseNationalSpirePath>@(_NseWsCandidate)</NseNationalSpirePath>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(NseNationalSpirePath)' == '' and '@(_NseLocalCandidate)' != ''">
+      <NseNationalSpirePath>@(_NseLocalCandidate)</NseNationalSpirePath>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(NseNationalSpirePath)' != ''">
+      <Reference Include="NationalSpire">
+        <HintPath>$(NseNationalSpirePath)</HintPath>
+        <Private>false</Private>
+      </Reference>
+    </ItemGroup>
+  </Target>
+
+  <!-- 默认（无游戏引用）时告诉 Program.cs 跳过适配层套件的注册 -->
+  <PropertyGroup Condition="'$(GameRefsEnabled)' != 'true'">
+    <DefineConstants>$(DefineConstants);NSE_NO_GAME</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\NationalSpireEconomy.csproj" />
+  </ItemGroup>
+
+  <!-- 与主工程同一套引用，保证"能编译"和"能运行"是一回事 -->
+  <ItemGroup Condition="'$(GameRefsEnabled)' == 'true'">
+    <Reference Include="sts2"><HintPath>$(Sts2DataDir)\sts2.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(Sts2DataDir)\0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="GodotSharp"><HintPath>$(Sts2DataDir)\GodotSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Steamworks.NET"><HintPath>$(Sts2DataDir)\Steamworks.NET.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <!--
+    适配层的测试要构造 CareerPerson / CareerData，没有游戏引用就编不过，因此默认排除。
+    NSE_NO_GAME 让 Program.cs 同步跳过这几个套件的注册。
+    默认配置下跑的仍然是 Core/Economy/Trade/Inject 的纯逻辑用例。
+  -->
+  <ItemGroup Condition="'$(GameRefsEnabled)' != 'true'">
+    <Compile Remove="ModEntryTests.cs" />
+    <Compile Remove="NpcFactsProjectionTests.cs" />
+    <Compile Remove="PlayerWalletTests.cs" />
+    <Compile Remove="TradeMarkerInterceptorTests.cs" />
+    <Compile Remove="InjectWiringTests.cs" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,109 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>NationalSpireEconomy</AssemblyName>
+    <RootNamespace>NationalSpireEconomy</RootNamespace>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <!--
+      刻意不使用 Godot.NET.Sdk：本机 NuGet 出网被拦，无法还原该 SDK。
+      第 7 步（补丁层）需要下面这些游戏程序集，通过 GameRefsEnabled 打开。
+    -->
+    <GameRefsEnabled Condition="'$(GameRefsEnabled)' == ''">false</GameRefsEnabled>
+    <Sts2Dir Condition="'$(Sts2Dir)' == ''">D:\Steam\steamapps\common\Slay the Spire 2</Sts2Dir>
+    <Sts2DataDir>$(Sts2Dir)\data_sts2_windows_x86_64</Sts2DataDir>
+    <ModsDir>$(Sts2Dir)\mods</ModsDir>
+    <!--
+      steamapps 目录。必须规范化成绝对路径：<Reference><HintPath> 里的 "..\.." 
+      不会被解析，会导致 MSB3245「未能解析此引用」。
+    -->
+    <SteamAppsDir Condition="'$(SteamAppsDir)' == ''">$([System.IO.Path]::GetFullPath('$(Sts2Dir)\..\..'))</SteamAppsDir>
+    <NseSts2AppId Condition="'$(NseSts2AppId)' == ''">2868840</NseSts2AppId>
+  </PropertyGroup>
+
+  <!--
+    解析 NationalSpire.dll 的真实位置。
+
+    为什么不能写死 mods\NationalSpire\：Steam 创意工坊版与本地版会同时存在，
+    而原版的加载仲裁规则是「同 id 取版本号大者」——实测日志里明确写着
+    「Steam version (v0.26.11) is greater than local version (v0.25.39),
+      so we are disabling the local version」。
+    也就是说本地那份是【被禁用】的死代码，按它编译出来的补丁会因为版本不一致而失配。
+
+    优先级：显式指定 > 创意工坊 > 本地 mods 目录。
+  -->
+  <Target Name="NseResolveNationalSpire" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <_NseWsCandidate Include="$(SteamAppsDir)\workshop\content\$(NseSts2AppId)\*\NationalSpire.dll" />
+      <_NseLocalCandidate Include="$(ModsDir)\NationalSpire\NationalSpire.dll" />
+    </ItemGroup>
+
+    <PropertyGroup Condition="'$(NseNationalSpirePath)' == '' and '@(_NseWsCandidate)' != ''">
+      <NseNationalSpirePath>@(_NseWsCandidate)</NseNationalSpirePath>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(NseNationalSpirePath)' == '' and '@(_NseLocalCandidate)' != ''">
+      <NseNationalSpirePath>@(_NseLocalCandidate)</NseNationalSpirePath>
+    </PropertyGroup>
+
+    <!--
+      引用必须在【目标里】添加，不能写在项目级 ItemGroup 里：
+      项目级 ItemGroup 在项目求值阶段就展开，那时本目标还没跑，
+      $(NseNationalSpirePath) 还是空的，于是 HintPath 为空 →
+      MSB3245「未能解析此引用」+ 一堆 CS0246。
+    -->
+    <ItemGroup Condition="'$(NseNationalSpirePath)' != ''">
+      <Reference Include="NationalSpire">
+        <HintPath>$(NseNationalSpirePath)</HintPath>
+        <Private>false</Private>
+      </Reference>
+    </ItemGroup>
+
+    <Warning Condition="'$(GameRefsEnabled)' == 'true' and '$(NseNationalSpirePath)' == ''"
+             Text="找不到 NationalSpire.dll（既不在创意工坊也不在 mods 目录）。src/Game 会编译失败，请设置 -p:NseNationalSpirePath=路径。" />
+
+    <Message Importance="normal"
+             Condition="'$(GameRefsEnabled)' == 'true'"
+             Text="NationalSpire 引用：$(NseNationalSpirePath)" />
+  </Target>
+
+  <!-- 游戏程序集引用：仅在 GameRefsEnabled=true 时生效（第 7 步开始） -->
+  <ItemGroup Condition="'$(GameRefsEnabled)' == 'true'">
+    <Reference Include="sts2"><HintPath>$(Sts2DataDir)\sts2.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(Sts2DataDir)\0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="GodotSharp"><HintPath>$(Sts2DataDir)\GodotSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Steamworks.NET"><HintPath>$(Sts2DataDir)\Steamworks.NET.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <!--
+    默认 glob 会把 tests/ 与任何未来新增的非源码目录吸进主程序集
+    （tests/ 是独立可执行工程，混进来会报 CS8805）。
+    这里显式把所有源码收敛到 src/ 下，避免这类问题反复出现。
+  -->
+  <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
+    <Compile Remove="config\**\*.cs" />
+    <None Remove="tests\**" />
+  </ItemGroup>
+
+  <!--
+    GameRefsEnabled=false 时排除适配层。src/Game/ 里的类型（ModInitializer、CareerData、
+    Harmony……）全部来自游戏程序集，没有引用就编不过。
+    于是默认配置下 Core/Economy/Trade/Inject 四层仍然是零依赖、可独立编译与单测的。
+  -->
+  <ItemGroup Condition="'$(GameRefsEnabled)' != 'true'">
+    <Compile Remove="src\Game\**\*.cs" />
+  </ItemGroup>
+
+  <!-- 配置文件随包分发（内容文件，不是嵌入式资源，玩家可直接改） -->
+  <ItemGroup>
+    <None Include="config\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 物品目录示例数据：本期未接线，但先随包分发，便于后续「购买物品」直接读取。 -->
+    <None Include="src\Trade\Catalog\items.json" Link="Catalog\items.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

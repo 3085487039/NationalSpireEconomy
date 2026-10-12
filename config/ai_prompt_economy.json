@@ -1,0 +1,106 @@
+{
+  "configVersion": 1,
+  "_comment": "Prompt 注入模板。只放措辞，不放逻辑。可用占位符见下。所有数字只允许出现在 volatile* 模板里，stable* 模板必须保持零数字，否则会破坏前缀缓存。",
+
+  "_placeholders": {
+    "stableTierLine": ["wealthBand", "incomeSource"],
+    "stableMoneyView": ["tags", "kindTrait", "moneyAttitude"],
+    "stableIntentLine": ["intentPhrase"],
+    "volatileCurrent": ["balance", "season", "seasonIncome", "salaryIncome", "winBonusIncome", "sponsorIncome"],
+    "volatileLastEntry": ["day", "title", "amount", "reason"],
+    "volatilePendingVoice": ["line"],
+    "newsWealthField": ["wealthBand"]
+  },
+
+  "stableHeader": "【经济状况】",
+  "stableTierLine": "你{wealthBand}。你的收入主要来自{incomeSource}。",
+  "stableMoneyView": "你的金钱观是：{tags}。{moneyAttitude}",
+  "stableIntentLine": "你最近{intentPhrase}。",
+  "_commentTradeProtocol": "★交易协议（阶段 4）。这段文字必须【零数字】（S 段纪律，ConfigLoader 会用 \\d 拦），所以金额示例写成「金额」而不是具体数。没有这段，模型永远不会自己发 [Trade: …] 标记——真机实测：上一轮它只是复读玩家打的字。",
+  "stableBlockSuffix": "以上只是你此刻的状况与倾向，不要在对话里复述这些条目，也不要主动报出具体数字。当你想为对方花钱时，在回复的最后单独写一行交易标记：[Trade: 赞助, Amount: 金额, Direction: npcToPlayer]，其中 Direction 只能是 npcToPlayer（你给对方钱）或 playerToNpc（对方给你钱），金额不得超过你的可用余额。注意：只有写出这一行标记，钱才会真的转过去；只在正文里答应给钱、却不写标记，不会产生任何转账。如果对方开口要钱但没说具体数额，先问清数额与用途；等对方说清数额之后，你愿意就按那个数额写标记给钱，不愿意就照你的性格拒绝（不要自己编一个数额）。对方提出的交易你若同意，就在回复里再写一行：[Deal: accept]；不同意就不写。写完标记之后不要再解释这一行。",
+
+  "_commentPlacement": "稳定段插在 system 字符串的哪里：插在 stableAnchor 这句之前，也就是紧邻原版最后一串 Protocol 之后，原版那句收尾仍然收尾。绝不新增 message，message 条数与原版一致。改这里不需要重编译，原版换文案时改这一行即可。",
+  "stableAnchor": "后续人物资料与记忆是参考内容",
+  "_commentStableEnabled": "稳定段开关。总开关在 economy_config.json 的 injection.stableEnabled，两处都是 true 才注入。这里是字符串形式的 true/false（Prompt 配置只承载字符串）。",
+  "stableEnabled": "true",
+
+  "_commentVolatilePlacement": "易变段（所有数字）追加到承载 ordered.Current 的那条 user 消息末尾——也就是以 volatileAnchor 开头的那条消息。不新增 message。原版换文案时改这一行即可，不必重编译。刻意【不】提供「找不到锚点就随便挑一条 user 消息」的兜底：那会把经济信息塞进玩家自己说的话里。",
+  "volatileAnchor": "当前日期：",
+  "_commentVolatileEnabled": "易变段开关。总开关在 economy_config.json 的 injection.volatileEnabled，两处都是 true 才注入。",
+  "volatileEnabled": "true",
+
+  "volatileHeader": "【当前经济】",
+  "volatileCurrent": "你可用余额 {balance}。本赛季收入 {seasonIncome}（工资 {salaryIncome}、胜场奖金 {winBonusIncome}、赞助 {sponsorIncome}）。",
+  "volatileLastEntry": "最近一笔：第 {day} 天 {title} {amount}{reason}。",
+  "volatilePendingVoice": "你上一轮想说的话：{line}",
+
+  "_weightBands": {
+    "_comment": "tier → wealthBand 的措辞。这些字符串必须定长、无数字，保证 stable 段逐字节稳定。",
+    "普通玩家": "手头很紧",
+    "青训选手": "不算宽裕",
+    "教练": "日子过得还行",
+    "主播": "收入不太稳定",
+    "解说员": "日子过得还行",
+    "赛事记者": "日子过得还行",
+    "退役选手": "有些积蓄",
+    "职业选手": "手头宽裕",
+    "世界顶尖": "相当富裕"
+  },
+
+  "incomeSource": {
+    "_comment": "tier → 收入来源措辞，同样必须零数字。",
+    "普通玩家": "平时打零工和偶尔的社区比赛",
+    "青训选手": "青训补贴和家里支持",
+    "教练": "俱乐部教练合同",
+    "主播": "直播和平台分成",
+    "解说员": "解说合同",
+    "赛事记者": "稿费",
+    "退役选手": "解说通告和早年的积蓄",
+    "职业选手": "俱乐部工资与胜场奖金",
+    "世界顶尖": "顶薪合同、冠军奖金和代言",
+    "default": "比赛奖金和日常收入"
+  },
+
+  "moneyAttitude": {
+    "_comment": "Kind → 一句话金钱观（人话素材）。tags 不足以表达时用这里补足语气；缺项则只用 tags 拼接。",
+    "暴躁喷子": "别人拿小钱试探你，你会觉得被小看。",
+    "尖刻挑刺者": "你会先看金额够不够诚意，再决定要不要搭理。",
+    "战绩踩头者": "你宁愿花大钱请高手，也不肯收别人的小钱。",
+    "打法优越者": "你只愿意为真正懂行的人花钱。",
+    "嘴硬争胜者": "钱在你这里也是比高低的筹码，你不会轻易认下对方开的价。",
+    "嫉妒比较者": "看到别人被大方对待，你会不太痛快。",
+    "怨气抱怨者": "每花一笔钱你都要念叨半天。",
+    "反感说教者": "你不接受用钱来安排你的人。",
+    "狂热拥护者": "只要是你认可的人，你花多少都愿意。",
+    "护短熟人": "自己人有困难，你不会算得太细。",
+    "夸张吹捧者": "你花钱喜欢花在明面上，越大方越有面子。",
+    "热心同好": "遇到真喜欢爬塔的人，你乐意帮一把，也不还价。",
+    "兴奋追随者": "你想参与进去，钱不是问题，带你一起玩才是。",
+    "较真维护者": "该谁出的钱就要算清楚，你受不了含糊。",
+    "自我炫耀者": "你出钱是为了让人看见你的本事，不为别的。",
+    "故意挑事者": "替你说话是要收费的，价码得谈。",
+    "反串拱火者": "你给钱的时候会特意把话说得很满。",
+    "看戏起哄者": "你花钱图的是热闹，得看值不值这个数。",
+    "反骨抬杠者": "别人越觉得你该收，你越不想收。",
+    "自认客观者": "你会先判断这笔钱合不合道理，再决定动不动手。",
+    "刻薄玩笑者": "你习惯拿钱的事开玩笑，但心里有数。",
+    "不服输挑战者": "你愿意为一场值得的较量掏钱，但得先赢过你。",
+    "直率求助者": "你要的是答案，不是钱，别人塞钱你会直说不必。",
+    "自嘲找同伴者": "你自己也紧，但遇上同病相怜的人会想搭把手。"
+  },
+
+  "intentPhrase": {
+    "_comment": "intentEvolve 的 driftBand → 措辞。这也必须零数字。",
+    "generous": "愿意为成绩和人情花钱，出手比平时大方",
+    "steady": "花钱比较有分寸，该花的花，该省的省",
+    "cautious": "花钱开始谨慎，先把自己的事料理好",
+    "stingy": "手头紧，能省则省",
+    "resentful": "有点介意之前被人拿小钱试探过"
+  },
+
+  "newsPeopleWealthField": {
+    "_comment": "社区/发帖场景只注入量级档位，不注入精确数字。",
+    "enabled": true,
+    "field": "wealthBand"
+  }
+}
