@@ -120,10 +120,10 @@
 ### 两套基线（**顺序是硬约束**）
 
 ```powershell
-# ① 零依赖基线（先跑）—— <当前 391 / 391>
+# ① 零依赖基线（先跑）—— <当前 395 / 395>
 dotnet run --project tests/NationalSpireEconomy.Tests/NationalSpireEconomy.Tests.csproj -c Release
 
-# ② 含游戏引用基线（最后跑）—— <当前 523 / 523>
+# ② 含游戏引用基线（最后跑）—— <当前 530 / 530>
 dotnet run --project tests/NationalSpireEconomy.Tests/NationalSpireEconomy.Tests.csproj -c Release -p:GameRefsEnabled=true
 ```
 
@@ -136,10 +136,25 @@ dotnet run --project tests/NationalSpireEconomy.Tests/NationalSpireEconomy.Tests
 .\build-deploy.ps1      # 清理 → Release 构建（GameRefsEnabled=true）→ 组装 deploy\ → 写 SHA256SUMS
 ```
 
+一次运行会产出一整套（`[5/5]` 步）：
+
+| 产出 | 用途 |
+| --- | --- |
+| `deploy\NationalSpireEconomy\` | 真机部署包（含包内 `SHA256SUMS.txt`） |
+| `release\NationalSpireEconomy-二开-v0.1.0\` | 面向玩家的发布包（= 部署包 + `README-安装与授权.md`） |
+| `release\NationalSpireEconomy-二开-v0.1.0.zip` | 玩家下载的 zip |
+| `SHA256SUMS-release.txt` | 上面那个 zip 的字节数与 SHA256（**由脚本写入，不要手改**） |
+
 ⚠ **打完包之后不要再跑零依赖基线** —— 那一轮会把 `bin\` 里的全量 DLL 覆盖成缩减版。
 
 ⚠ 该脚本里 `Remove-Item $stg` 会清掉 `deploy\NationalSpireEconomy\`，
 但**刻意不删 `deploy\` 本身**（那里放着 `DEPLOY.md`）。
+
+> **两个路径都由脚本重建，不要手工往 `release\` 里拷文件**：手工维护正是它曾经
+> 落后一版（DLL 与 `ai_prompt_economy.json` 都停在旧版）的原因。
+> 脚本用的 zip 写法带**固定时间戳**，所以同一个提交重复打包得到的 zip 哈希**完全一致**，
+> 可以直接拿 `SHA256SUMS-release.txt` 复现核对。
+> 包内 `README-安装与授权.md` 的源文件是仓库根的 `release-readme.md`。
 
 ---
 

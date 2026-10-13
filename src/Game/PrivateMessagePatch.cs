@@ -78,6 +78,19 @@ public static class PrivateMessagePatch
     /// <summary>装配细节（成功或失败原因）。</summary>
     public static string Detail { get; private set; } = "未装配";
 
+    /// <summary>
+    /// 本补丁是否**已按设计退场**（方案 A 接管之后不再使用它）。
+    /// <para>
+    /// 与 <see cref="Applied"/> 的区别很重要：<c>Applied == false</c> 也可能是"压根没装上"，
+    /// 那是故障；而"已退场"是设计。谁要靠这个状态决定说什么话，就该问这一个。
+    /// </para>
+    /// <para>
+    /// 典型用处：影子推进时那句"私信组装补丁 0 次"的提醒 —— 退场之后它计数恒为 0，
+    /// 继续刷就成了永久的假话（见 H8/B8 那轮的修复）。
+    /// </para>
+    /// </summary>
+    public static bool IsRetired { get; private set; }
+
     /// <summary>已打上的补丁方法名。</summary>
     public static IReadOnlyList<string> PatchedMethods { get; private set; } = [];
 
@@ -168,6 +181,7 @@ public static class PrivateMessagePatch
     public static void MarkRetired(string reason)
     {
         Applied = false;
+        IsRetired = true;
         PatchedMethods = [];
         Detail = "已按设计停用：" + reason;
     }

@@ -20,6 +20,7 @@ public static class ShadowPlayerWalletTests
         ImportReadsVanillaCreditsAndFractionOnce,
         SecondImportDoesNotOverwriteBalance,
         ImportRefusesNegativeVanillaBalance,
+        ImportRefusesFractionalDollarsInsteadOfTruncating,
         ApplyBeforeImportIsRejected,
         CreditMovesBalanceAndWritesAuditableEntry,
         SameReceiptKeyNeverAppliesTwice,
@@ -154,6 +155,44 @@ public static class ShadowPlayerWalletTests
         TestRunner.False(world.Player.Imported, "水位线不能被置位，否则钱包会被永久锁死在 0");
         TestRunner.Equal(0L, world.Player.Balance);
         TestRunner.Equal(0, world.Player.Ledger.Count, "失败的导入不该留下期初流水");
+    }
+
+    /// <summary>
+    /// 折算结果不是整数美元时<b>拒绝导入</b>，而不是静默截断。
+    /// <para>
+    /// <c>CreditFraction</c> 按定义是"不足一个内部单位的小数部分"，值域里含 0.05 这类分数，
+    /// 折算成美元就会出现角分。原先那句 <c>(long)MoneyUnits.BalanceUsd(...)</c> 会悄悄丢掉
+    /// 最多 $9 —— 这是全模块唯一违反自己"不静默丢精度"教条的地方（<c>MoneyUnits</c>
+    /// 专门定义了 <c>MoneyLossException</c> 就是为了不让这种事悄悄发生）。
+    /// </para>
+    /// <para>
+    /// 取舍与"负余额"那一条一致：宁可让钱包停在"未导入"（一动钱就被拒、水位线不置位、
+    /// 修好之后还能重新导入），也不要一个悄悄少了几块钱的余额。
+    /// </para>
+    /// </summary>
+    private static void ImportRefusesFractionalDollarsInsteadOfTruncating()
+    {
+        var world = World();
+
+        // 19682 内部单位 + 0.05 内部单位 = 19682.05 × $10 = $196,820.5 —— 半美元。
+        // 旧的 cast 会把它变成 $196,820（静默丢掉 $0.50），并且永远没人发现。
+        var outcome = ShadowPlayerWallet.ImportOnce(world, 19_682, 0.05m, day: 452, season: 6,
+            clock: new FixedEconomyClock(T0), log: Silent);
+
+        TestRunner.False(outcome.Imported, "★非整数美元的折算必须拒绝导入，不能静默截断");
+        TestRunner.False(world.Player.Imported,
+            "水位线不能被置位——否则这个玩家永远拿不到正确的初始余额");
+        TestRunner.Equal(0L, world.Player.Balance, "被拒时余额保持 0");
+        TestRunner.Equal(0, world.Player.Ledger.Count, "失败的导入不留期初流水");
+        TestRunner.Contains(outcome.Detail, "拒绝导入", "结论要明说拒绝");
+
+        // 对照：同样的整数部分、分数部分为 0 时必须正常导入 —— 证明拒绝的是"分数"，
+        // 而不是这条路整个坏掉了。
+        var ok = World("e35d0119b");
+        var okOutcome = ShadowPlayerWallet.ImportOnce(ok, 19_682, 0m, day: 452, season: 6,
+            clock: new FixedEconomyClock(T0), log: Silent);
+        TestRunner.True(okOutcome.Imported, "对照组：整数美元必须能导入");
+        TestRunner.Equal(196_820L, ok.Player.Balance, "对照组：余额应为 $196,820");
     }
 
     // ── 动钱 ────────────────────────────────────────────────────────

@@ -27,6 +27,7 @@ public static class InjectWiringTests
     [
         FirstBailPathSpeaksOnFirstCall,
         ComposeHintOnlyBeforeAnyComposeCall,
+        RetiredComposeHintNoLongerCriesWolf,
         ComposePostfixInjectsStableBlock,
         ComposePostfixInjectsVolatileSegment,
         ComposePostfixKeepsMessageCountAndOrder,
@@ -307,12 +308,46 @@ public static class InjectWiringTests
     private static void ComposeHintOnlyBeforeAnyComposeCall()
     {
         // 纯函数：不依赖"进程里还没发生过注入"这种顺序前提。
-        TestRunner.Contains(ShadowEconomyRuntime.ComposeHintFor(ShadowEconomyRuntime.TickSourceGame, 0),
-            "私信组装补丁 0 次", "还没被调用过时要提醒");
-        TestRunner.Equal("", ShadowEconomyRuntime.ComposeHintFor(ShadowEconomyRuntime.TickSourceGame, 1),
+        // patchRetired 显式给 false，所以这条断言与进程状态无关。
+        TestRunner.Contains(
+            ShadowEconomyRuntime.ComposeHintFor(ShadowEconomyRuntime.TickSourceGame, 0,
+                patchApplied: true, patchRetired: false),
+            "私信组装补丁 0 次", "装了却一次没被调用 ⇒ 才是真的该提醒（阶段 3-A 那个事故的形状）");
+        TestRunner.Equal("",
+            ShadowEconomyRuntime.ComposeHintFor(ShadowEconomyRuntime.TickSourceGame, 1,
+                patchApplied: true, patchRetired: false),
             "命中过一次之后就该闭嘴，不能长期刷日志");
-        TestRunner.Equal("", ShadowEconomyRuntime.ComposeHintFor(ShadowEconomyRuntime.TickSourceSelfCheck, 0),
+        TestRunner.Equal("",
+            ShadowEconomyRuntime.ComposeHintFor(ShadowEconomyRuntime.TickSourceSelfCheck, 0,
+                patchApplied: true, patchRetired: false),
             "启动自证不带这句噪音");
+    }
+
+    /// <summary>
+    /// <b>补丁按设计退场之后，那句"挂载点没被调用"就是永久的假话。</b>
+    /// <para>
+    /// 方案 A 接管后旧的 Compose 注入补丁被 <c>MarkRetired</c> 停用，
+    /// 而 <c>Invocations</c> 只由它递增 ⇒ 计数恒为 0，于是这句提醒会**每推进一天刷一次**，
+    /// 把接手者往"挂载点坏了"的方向引（真相是它已按设计退场）。
+    /// </para>
+    /// <para>
+    /// 这条用例直接钉住"退场后闭嘴"，并保留"没退场 + 零命中 ⇒ 仍然要吵"作为对照 ——
+    /// 否则把整句删掉也能让本用例通过，那会丢掉真正的告警能力。
+    /// </para>
+    /// </summary>
+    private static void RetiredComposeHintNoLongerCriesWolf()
+    {
+        // 已退场（IsRetired=true）⇒ 不该再出现。
+        TestRunner.Equal("",
+            ShadowEconomyRuntime.ComposeHintFor(ShadowEconomyRuntime.TickSourceGame, 0,
+                patchApplied: false, patchRetired: true),
+            "★退场之后这句提醒必须消失 —— 它是永真的假话，会把排查带偏");
+
+        // 对照：补丁还挂着、却一次都没命中 ⇒ 仍然必须吵（这才是阶段 3-A 的真实故障形状）。
+        TestRunner.Contains(
+            ShadowEconomyRuntime.ComposeHintFor(ShadowEconomyRuntime.TickSourceGame, 0,
+                patchApplied: true, patchRetired: false),
+            "挂载点没被调用", "对照组：装了没命中仍然要提醒");
     }
 
     // ── V 段（易变段） ──────────────────────────────────────────────
@@ -457,12 +492,16 @@ public static class InjectWiringTests
     private static void HookProbeResolvesAllFourTargets()
     {
         var state = SetupMod(out var config);
-        TestRunner.True(config.Economy.Injection.ProbeEnabled, "前置：体检开关应为 true");
 
-        var patched = HookProbe.Run(EconomyModEntry.HarmonyInstance, Silent, null,
-            config.Economy.Injection.ProbeEnabled);
+        // 交付默认必须是【关】的：探针只在排障时要，而它给每个候选方法挂补丁、每次调用写文件
+        // （真机实测一次私信的 Feed 命中 4369 次）。所以这里先钉默认值，再显式打开来测装配。
+        TestRunner.False(config.Economy.Injection.ProbeEnabled,
+            "★交付默认必须是关的（挂载点问题早已定案，不该让玩家替我们付探针的代价）");
 
-        TestRunner.True(HookProbe.Enabled, "体检应处于启用状态");
+        // 显式传 true 来验证"打开时确实能挂上四个目标"——测的是能力，不是默认值。
+        var patched = HookProbe.Run(EconomyModEntry.HarmonyInstance, Silent, null, enabled: true);
+
+        TestRunner.True(HookProbe.Enabled, "显式打开之后体检应处于启用状态");
         Console.WriteLine("      · 探针清单：" + string.Join(" + ", patched));
         foreach (string line in HookProbe.Inventory) Console.WriteLine("        " + line);
 
@@ -607,11 +646,14 @@ public static class InjectWiringTests
         TestRunner.False(PrivateMessagePatch.Applied,
             "启动期不该再挂 Compose 注入补丁（单轨：方案 A 接管）");
         TestRunner.False(state.Patches.Any(p => p.Contains("Compose") && !p.Contains("probe")),
-            "补丁清单里不该再有【注入用】的 Compose（只允许保留观测用的探针），实际：" +
-            string.Join(" + ", state.Patches));
-        TestRunner.True(state.Patches.Any(p => p.Contains("Compose") && p.Contains("probe")),
-            "观测用的 Compose 探针应当仍在（否则这条「已停用」就无从验证），实际：" +
-            string.Join(" + ", state.Patches));
+            "补丁清单里不该再有【注入用】的 Compose，实际：" + string.Join(" + ", state.Patches));
+
+        // 注意：这里【不再】断言"观测用的 Compose 探针应当在"。
+        // 探针现在由 injection.probeEnabled 控制、交付默认关（它给 19 个候选方法各挂 3 个补丁、
+        // 每次调用同步写文件，真机实测一次私信的 Feed 命中 4369 次）。
+        // 上面那条"没有注入用 Compose"的断言才是单轨原则的真正落点，它不依赖探针开关；
+        // 探针本身的能力由 HookProbeResolvesAllFourTargets 显式打开来验证。
+        Console.WriteLine("      · 补丁清单：" + string.Join(" + ", state.Patches));
 
         TestRunner.True(CareerDayPatch.Applied, "日期推进补丁应已挂载");
         TestRunner.True(state.Patches.Any(p => p.Contains(CareerDayPatch.PrimaryMethodName)),
@@ -752,14 +794,8 @@ public static class InjectWiringTests
 
     private static string RealConfigDirectory()
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null)
-        {
-            string candidate = Path.Combine(directory.FullName, "config");
-            if (File.Exists(Path.Combine(candidate, ConfigLoader.EconomyFileName))) return candidate;
-            directory = directory.Parent;
-        }
-        throw new Exception("找不到 config/ 目录");
+        // 收敛到共享实现（原先 19 个文件各抄一份）。
+        return TestConfig.Directory();
     }
 
     private static ConfigLoadResult LoadReal()

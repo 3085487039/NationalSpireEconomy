@@ -285,14 +285,9 @@ public static class StableInsertionTests
 
     private static string? FindConfigDirectory()
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null)
-        {
-            string candidate = Path.Combine(directory.FullName, "config");
-            if (File.Exists(Path.Combine(candidate, ConfigLoader.EconomyFileName))) return candidate;
-            directory = directory.Parent;
-        }
-        return null;
+        // 收敛到共享实现（原先 19 个文件各抄一份，副本之间已经开始漂移）。
+        try { return TestConfig.Directory(); }
+        catch (Exception) { return null; }
     }
 
     private static int CountOccurrences(string text, string needle)

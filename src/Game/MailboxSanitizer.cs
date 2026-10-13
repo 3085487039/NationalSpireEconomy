@@ -79,7 +79,6 @@ public static class MailboxSanitizer
         lock (Done)
         {
             if (Done.TryGetValue(data, out _)) return false;
-            Done.Add(data, data);
         }
 
         Ran = true;
@@ -92,7 +91,8 @@ public static class MailboxSanitizer
             if (life == null)
             {
                 LastReport = "拿不到 Life（原版结构变了？）";
-                log?.Warn("trade", "[Economy-Marker] 存档清理：跳过｜" + LastReport);
+                log?.Warn("trade", "[Economy-Marker] 存档清理：跳过｜" + LastReport +
+                                  "｜本次不登记，下次调用会重试");
                 return false;
             }
 
@@ -100,7 +100,8 @@ public static class MailboxSanitizer
             if (mailbox == null)
             {
                 LastReport = "拿不到 Life.Mailbox（原版结构变了？）";
-                log?.Warn("trade", "[Economy-Marker] 存档清理：跳过｜" + LastReport);
+                log?.Warn("trade", "[Economy-Marker] 存档清理：跳过｜" + LastReport +
+                                  "｜本次不登记，下次调用会重试");
                 return false;
             }
 
@@ -109,8 +110,22 @@ public static class MailboxSanitizer
             {
                 LastReport = $"Life.Mailbox.Conversations 不是字典而是 " +
                              (conversationsRaw?.GetType().FullName ?? "null");
-                log?.Warn("trade", "[Economy-Marker] 存档清理：跳过｜" + LastReport);
+                log?.Warn("trade", "[Economy-Marker] 存档清理：跳过｜" + LastReport +
+                                  "｜本次不登记，下次调用会重试");
                 return false;
+            }
+
+            // ★ 登记必须发生在【三层结构都确认拿到之后】。
+            //
+            // 曾经的写法是在方法开头（取结构之前）就 Done.Add(data, data)，于是
+            // "Life 取不到"这类提前返回会把它永久标记成"处理过"（ConditionalWeakTable
+            // 按对象身份记），而 WorldFor 的注释还承诺"下次启动会再清一遍（幂等）"——
+            // 对同一份对象这个承诺当时是不成立的。真机症状会是"标记一直在，日志说清过了"。
+            // 现在：取不到结构 ⇒ 不登记 ⇒ 下一次调用（可能数据已经填好）仍会重试。
+            lock (Done)
+            {
+                if (Done.TryGetValue(data, out _)) return false;
+                Done.Add(data, data);
             }
 
             int touched = 0;

@@ -128,6 +128,11 @@ public static class TradeNoteText
                 $"【未成立】{kind} {amount}（{flow}）被你拒绝了，钱一分没动{id}。",
             TradeNoteStatuses.Incomplete =>
                 $"【未成立】上一笔与{who}的{kind}意图没说清（{Trim(reason)}），没有落单，钱一分没动{id}。",
+            // 刻意【不说】"已结算"，也不说"钱一分没动"——我们真的不知道。
+            // 只凭一个 Confirmed 状态位就宣布其中任何一种，都是在替账本撒谎。
+            TradeNoteStatuses.Unverified =>
+                $"【无法核实】{kind} {amount}（{flow}）单子上写着已确认，但账本里找不到对应流水{id}。" +
+                $"它可能很久以前真的结算过（流水已被裁剪），也可能根本没结算——{Trim(reason)}",
             TradeNoteStatuses.Failed =>
                 $"【未成立】{kind} {amount}（{flow}）没能结算：{Trim(reason)}｜钱一分没动{id}。",
             _ =>

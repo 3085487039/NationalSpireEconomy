@@ -339,6 +339,20 @@ public static class TradeNoteStatuses
 
     /// <summary>玩家自己点了拒绝 / 回了「拒绝 &lt;单号&gt;」。</summary>
     public const string Declined = "declined";
+
+    /// <summary>
+    /// 单子标着已确认，但账本里找不到对应流水 ⇒ <b>无法核实钱到底动没动</b>。
+    /// <para>
+    /// 存在的理由：<c>Confirmed</c> 这个状态<b>本身不是"钱动过"的证据</b>——
+    /// <c>TradeEngine.Confirm</c> 在幂等命中时也会置它，而收据会被裁剪、
+    /// 流水是每 NPC 64 条的环形，于是很久以前的结算可能只剩下一个悬空的流水 id。
+    /// </para>
+    /// <para>
+    /// <b>它刻意不算 <see cref="LastTradeNote.Settled"/></b>：宁可对玩家说"查不到、无法核实"，
+    /// 也不能仅凭一个状态位就宣称"已结算"——那正是本项目最忌讳的"嘴上说转了"。
+    /// </para>
+    /// </summary>
+    public const string Unverified = "unverified";
 }
 
 /// <summary>单个生涯（WorldId）的完整经济数据。</summary>

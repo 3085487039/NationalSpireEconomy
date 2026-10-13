@@ -229,15 +229,36 @@ public sealed class ShadowPlayerWallet : IPlayerWallet
             return new PlayerImportOutcome(false, true, node.Balance, already);
         }
 
-        long balance = (long)MoneyUnits.BalanceUsd(creditsInternal, creditFraction);
-        if (balance < 0)
+        // ★ 折算结果必须正好是整数美元，否则【拒绝导入】而不是静默截断。
+        //
+        // CreditFraction 按定义是"不足一个内部单位的小数部分"，值域里含 0.05 这类分数，
+        // 折算成美元就会出现角分。曾经这里写的是 `(long)MoneyUnits.BalanceUsd(...)`——
+        // 一个 cast 悄悄丢掉最多 $9，而这是全模块唯一违反自己"不静默丢精度"教条的地方
+        // （MoneyUnits 为此专门定义了 MoneyLossException，就是为了不让这种事悄悄发生）。
+        //
+        // 拒绝的代价是玩家侧钱包停在"未导入"（一动钱就被 Apply 拒绝），
+        // 与下面"原版余额为负 ⇒ 拒绝导入"是同一种保守取舍：宁可响亮地不动钱，
+        // 也不要一个悄悄少了几块钱的余额。水位线保持未置位，所以修好之后仍能重新导入。
+        decimal exact = MoneyUnits.BalanceUsd(creditsInternal, creditFraction);
+        if (decimal.Truncate(exact) != exact)
+        {
+            string lossy =
+                $"原版余额折算出非整数美元（{creditsInternal} + {Invariant(creditFraction)} 内部单位 = " +
+                $"{Invariant(exact)} 美元），拒绝导入——不静默截断；水位线保持未导入。";
+            log?.Error("wallet", "玩家影子钱包：" + lossy);
+            return new PlayerImportOutcome(false, false, node.Balance, lossy);
+        }
+
+        if (exact < 0)
         {
             string bad =
                 $"原版生涯余额为负（{creditsInternal} + {Invariant(creditFraction)} 内部单位 = " +
-                $"{MoneyUnits.Format(balance)}），拒绝导入，水位线保持未导入。";
+                $"{MoneyUnits.Format((long)exact)}），拒绝导入，水位线保持未导入。";
             log?.Error("wallet", "玩家影子钱包：" + bad);
             return new PlayerImportOutcome(false, false, node.Balance, bad);
         }
+
+        long balance = (long)exact;
 
         node.Imported = true;
         node.Balance = balance;

@@ -189,8 +189,13 @@ public static class PathProbe
     /// <summary>
     /// 启用旁路日志（由 <c>EconomyModEntry.Init</c> 尽早调用）。
     /// <para>
-    /// 默认<b>开启</b>，但可以用环境变量 <c>NSE_PATH_PROBE=0</c> 关掉：
-    /// 取证探针会给每个候选方法加三个补丁，正常游玩时不需要它。
+    /// <b>由配置 <c>injection.probeEnabled</c> 决定是否被调用</b>（默认 false），
+    /// 因为取证探针会给每个候选方法加三个补丁，并在**每次调用**时同步写文件 ——
+    /// 真机实测私信的一次 <c>Feed</c> 就命中 4369 次，正常游玩不该付这个代价。
+    /// </para>
+    /// <para>
+    /// 另外保留 <c>NSE_PATH_PROBE=1</c> 作为<b>强制打开</b>的覆盖开关（见
+    /// <see cref="ForceEnabledByEnvironment"/>）；显式的 <c>NSE_PATH_PROBE=0</c> 仍然能关掉它。
     /// </para>
     /// </summary>
     public static void Enable(string directory)
@@ -209,6 +214,17 @@ public static class PathProbe
             LastError = e.GetType().Name + ": " + e.Message;
         }
     }
+
+    /// <summary>
+    /// <c>NSE_PATH_PROBE=1</c>（或 <c>true</c>）时为真：<b>绕过配置强制打开取证</b>。
+    /// <para>
+    /// 存在的理由：改配置要动线上文件并重启，而"我要马上看一眼谁被执行了"这种场景
+    /// 往往是临时的。注意它只负责<b>打开</b>；显式的 <c>=0</c> 在 <see cref="Enable"/>
+    /// 里仍然优先否决。
+    /// </para>
+    /// </summary>
+    public static bool ForceEnabledByEnvironment =>
+        Environment.GetEnvironmentVariable("NSE_PATH_PROBE") is "1" or "true" or "True" or "TRUE";
 
     /// <summary>写一行旁路日志。<b>永不抛异常</b>（它是取证通道，坏掉就等于又瞎一次）。</summary>
     public static void Write(string line)

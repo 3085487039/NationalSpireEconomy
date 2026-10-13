@@ -31,7 +31,9 @@ config/*.old-*
 deploy/*
 !deploy/DEPLOY.md
 release/
-SHA256SUMS-release.txt
+# SHA256SUMS-release.txt is deliberately NOT ignored: it holds the zip hash that
+# README-安装与授权.md promises is recorded in the repo root, and build-deploy.ps1
+# regenerates it on every run, so it can no longer go stale.
 
 # ── 线上部署目录的备份 DLL（体积大、且是二进制快照）─────────
 deploy/**/*.old-*.dll

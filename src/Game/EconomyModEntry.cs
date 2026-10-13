@@ -256,8 +256,18 @@ public static class EconomyModEntry
         //   所以这里只开通道，装配挪到第 6 步之后。
         try
         {
-            PathProbe.Enable(Path.Combine(resolvedData, "probe"));
-            PathProbe.Write("程序集盘点（第 5 步，NationalSpire 尚未加载）：" + AssemblyInventory.Report());
+            // 与 HookProbe 共用 `injection.probeEnabled` 这一个开关，并且**默认关**。
+            //
+            // 为什么默认关：PathProbe 给 19 个候选方法各挂 3 个补丁（前缀+后缀+终结器），
+            // 每次调用都同步 File.AppendAllText —— 真机实测一次私信的 Feed 就命中 4369 次，
+            // 也就是每说一句话就往盘上写几千行。它是阶段 3 排查"谁被执行了"时造的工具，
+            // 那次已经定案，正常游玩不该继续付这个代价。
+            // NSE_PATH_PROBE=1 仍然可以强制打开（配置不方便改时的临时覆盖）。
+            if (config.Economy.Injection.ProbeEnabled || PathProbe.ForceEnabledByEnvironment)
+            {
+                PathProbe.Enable(Path.Combine(resolvedData, "probe"));
+                PathProbe.Write("程序集盘点（第 5 步，NationalSpire 尚未加载）：" + AssemblyInventory.Report());
+            }
         }
         catch (Exception e)
         {

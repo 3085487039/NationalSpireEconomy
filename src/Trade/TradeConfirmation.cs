@@ -70,6 +70,13 @@ public static class TradeConfirmationGate
     /// 而本项目对构建警告零容忍；改成"静态属性 + 唯一写入口"语义不变，
     /// 还能让真机验证通过环境变量临时打开（<c>NSE_SETTLEMENT=1</c>），不必为"试一次"重新编译。
     /// </para>
+    /// <para>
+    /// <b>它是一个进程级的开关</b>：一旦打开，本进程内**所有** <c>WorldId</c> 的结算都会真的动钱
+    /// （影子存档是按世界分片的，但这个开关不跟着世界走）。这是刻意的——真机上只有一个世界，
+    /// 而"按世界隔离"需要把开关塞进存档、并定义"切档时谁改它"，属于另一件事。
+    /// 因此：<b>测试里开关必须成对</b>（见 <see cref="WithSettlement"/>），
+    /// 否则会把"钱可以动"泄漏给同进程里后续每一个用例。
+    /// </para>
     /// </summary>
     public static bool SettlementWired { get; private set; }
 
@@ -78,6 +85,42 @@ public static class TradeConfirmationGate
     /// 依据 <c>NSE_SETTLEMENT</c> 调用；测试在自己的用例里显式开关并在 finally 里还原）。
     /// </summary>
     public static void WireSettlement(bool wired) => SettlementWired = wired;
+
+    /// <summary>
+    /// 临时开关结算并在离开时<b>无条件还原</b>（测试专用）。
+    /// <para>
+    /// 存在的理由：<see cref="SettlementWired"/> 是进程级静态量，而"动钱"这个副作用太贵，
+    /// 不能靠"我记得在 finally 里写回 false"。用 <c>using</c> 包住之后，
+    /// 连断言失败抛异常的那条路径也会还原 —— 把纪律交给编译器，而不是交给记性。
+    /// </para>
+    /// <example>
+    /// <code>
+    /// using (TradeConfirmationGate.WithSettlement(true))
+    /// {
+    ///     // …这一段里结算会真的动钱…
+    /// }
+    /// </code>
+    /// </example>
+    /// </summary>
+    public static IDisposable WithSettlement(bool wired)
+    {
+        bool previous = SettlementWired;
+        WireSettlement(wired);
+        return new SettlementScope(previous);
+    }
+
+    /// <summary><see cref="WithSettlement"/> 的还原句柄：Dispose 时把开关恢复成进入前的值。</summary>
+    private sealed class SettlementScope(bool previous) : IDisposable
+    {
+        private bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            WireSettlement(previous);
+        }
+    }
 
     /// <summary>第二步的说明（日志与文档里引用同一句话，避免说法分叉）。</summary>
     public const string SettlementIsNextPhase =

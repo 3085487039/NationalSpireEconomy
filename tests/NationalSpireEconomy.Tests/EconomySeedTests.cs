@@ -32,15 +32,7 @@ public static class EconomySeedTests
 
     private static ConfigLoadResult LoadReal()
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null)
-        {
-            string candidate = Path.Combine(directory.FullName, "config");
-            if (File.Exists(Path.Combine(candidate, ConfigLoader.EconomyFileName)))
-                return new ConfigLoader(candidate, Silent).Load();
-            directory = directory.Parent;
-        }
-        throw new Exception("找不到 config/ 目录");
+        return new ConfigLoader(TestConfig.Directory(), Silent).Load();
     }
 
     private static SeedingConfig FlatSeeding() => new()

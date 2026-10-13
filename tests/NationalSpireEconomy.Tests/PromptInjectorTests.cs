@@ -54,21 +54,7 @@ public static class PromptInjectorTests
 
     private static ConfigLoadResult RealConfig()
     {
-        if (_configDir == null)
-        {
-            var directory = new DirectoryInfo(AppContext.BaseDirectory);
-            while (directory != null)
-            {
-                string candidate = Path.Combine(directory.FullName, "config");
-                if (File.Exists(Path.Combine(candidate, ConfigLoader.EconomyFileName)))
-                {
-                    _configDir = candidate;
-                    break;
-                }
-                directory = directory.Parent;
-            }
-            if (_configDir == null) throw new Exception("找不到 config/ 目录");
-        }
+        if (_configDir == null) _configDir = TestConfig.Directory();
         return new ConfigLoader(_configDir, Silent).Load();
     }
 

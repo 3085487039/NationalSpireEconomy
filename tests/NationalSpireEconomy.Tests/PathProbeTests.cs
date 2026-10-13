@@ -443,7 +443,7 @@ public static class PathProbeTests
         string? probe = FindReferenceDll();
         if (probe == null)
         {
-            Console.WriteLine("      · 找不到可用于多副本验证的 DLL，跳过");
+            TestRunner.Skip("找不到可用于多副本验证的 DLL，无法验证「同 DLL 两份都要保留」");
             return;
         }
 
@@ -459,7 +459,7 @@ public static class PathProbeTests
         }
         catch (Exception e)
         {
-            Console.WriteLine("      · 无法在自定义 ALC 里加载该 DLL（" + e.GetType().Name + "），跳过");
+            TestRunner.Skip("无法在自定义 ALC 里加载该 DLL（" + e.GetType().Name + "），无法验证多副本");
             return;
         }
 
@@ -553,7 +553,11 @@ public static class PathProbeTests
         Initialize();
 
         Assembly? late = LoadSecondGameCopy("nse-late-copy-");
-        if (late == null) return;
+        if (late == null)
+        {
+            TestRunner.Skip("无法构造第二份副本：" + _loadCopyFailure);
+            return;
+        }
 
         var setContext = FindSetContext(late);
         TestRunner.True(setContext != null, "新副本里应有 PrivateTurn.set_Context");
@@ -598,7 +602,11 @@ public static class PathProbeTests
         TestRunner.True(EconomyModEntry.ReinforcementArmed, "Initialize 之后落点警卫必须已装好");
 
         Assembly? late = LoadSecondGameCopy("nse-reinforce-");
-        if (late == null) return;
+        if (late == null)
+        {
+            TestRunner.Skip("无法构造第二份副本：" + _loadCopyFailure);
+            return;
+        }
 
         var request = FindRequestPrivate(late);
         TestRunner.True(request != null, "新副本里应有 AiService.RequestPrivateAsync");
@@ -625,12 +633,16 @@ public static class PathProbeTests
     }
 
     /// <summary>再加载一份原版副本（独立 ALC，模拟"游戏稍后才加载的那一份"）。</summary>
+    /// <summary>上一次 <see cref="LoadSecondGameCopy"/> 为什么没拿到副本（供 Skip 的原因用）。</summary>
+    private static string _loadCopyFailure = "未尝试";
+
     private static Assembly? LoadSecondGameCopy(string namePrefix)
     {
         string? dll = NseProbe.ChosenNationalSpirePath;
         if (dll == null || !File.Exists(dll))
         {
-            Console.WriteLine("      · 找不到 NationalSpire.dll 的路径，跳过");
+            _loadCopyFailure = "找不到 NationalSpire.dll（NseProbe 没解析到路径）";
+            Console.WriteLine("      · 找不到 NationalSpire.dll 的路径");
             return null;
         }
 
@@ -645,7 +657,8 @@ public static class PathProbeTests
         }
         catch (Exception e)
         {
-            Console.WriteLine($"      · 无法在自定义 ALC 里加载原版（{e.GetType().Name}: {e.Message}），跳过");
+            _loadCopyFailure = $"无法在自定义 ALC 里加载原版（{e.GetType().Name}: {e.Message}）";
+            Console.WriteLine("      · " + _loadCopyFailure);
             return null;
         }
     }
@@ -708,16 +721,34 @@ public static class PathProbeTests
         // 本套件需要它时自己显式打开（见 EnableProbe）。
         Environment.SetEnvironmentVariable("NSE_PATH_PROBE", "0");
         string configDir = CopyRealConfig(TempRoot());
+        // ★ 交付默认是 probeEnabled=false（探针代价太大，不该让玩家付），
+        //   而本套件测的就是探针本身，所以把拷贝出来的那份配置显式打开。
+        //   不改仓库里的 config/ —— 那里必须保持交付默认值。
+        SetProbeEnabled(configDir, enabled: true);
         return EconomyModEntry.Initialize(Silent, TempRoot(), configDir);
     }
 
-    /// <summary>显式打开旁路日志（测试专用；生产里默认就是开的）。</summary>
+    /// <summary>显式打开旁路日志（测试专用；交付默认是关的，由配置决定）。</summary>
     private static string EnableProbe()
     {
         Environment.SetEnvironmentVariable("NSE_PATH_PROBE", "1");
         string dir = Path.Combine(Path.GetTempPath(), "nse-pathprobe-" + Guid.NewGuid().ToString("N"));
         PathProbe.Enable(dir);
         return Path.Combine(dir, PathProbe.FileName);
+    }
+
+    /// <summary>
+    /// 改<b>临时拷贝</b>里的 <c>injection.probeEnabled</c>。
+    /// 用 JSON 感知的方式读写（本项目吃过 <c>Set-Content</c> 加 BOM / 改数字格式的亏）。
+    /// </summary>
+    private static void SetProbeEnabled(string configDir, bool enabled)
+    {
+        string path = Path.Combine(configDir, ConfigLoader.EconomyFileName);
+        string json = File.ReadAllText(path);
+        var node = System.Text.Json.Nodes.JsonNode.Parse(json)!;
+        node["injection"]!["probeEnabled"] = enabled;
+        File.WriteAllText(path, node.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }),
+            new System.Text.UTF8Encoding(false));
     }
 
     private static string TempRoot() =>
@@ -737,14 +768,8 @@ public static class PathProbeTests
 
     private static string RealConfigDirectory()
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null)
-        {
-            string candidate = Path.Combine(directory.FullName, "config");
-            if (File.Exists(Path.Combine(candidate, ConfigLoader.EconomyFileName))) return candidate;
-            directory = directory.Parent;
-        }
-        throw new Exception("找不到 config/ 目录");
+        // 收敛到共享实现（原先 19 个文件各抄一份）。
+        return TestConfig.Directory();
     }
 }
 #endif

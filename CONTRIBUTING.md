@@ -41,8 +41,8 @@ dotnet run --project "$root\tests\NationalSpireEconomy.Tests\NationalSpireEconom
 
 | 基线 | 当前数量 |
 | --- | --- |
-| 零依赖 | **391 / 391** |
-| 含游戏引用 | **523 / 523** |
+| 零依赖 | **395 / 395** |
+| 含游戏引用 | **530 / 530** |
 | 编译警告 | **0**（三种构建配置都要 0） |
 
 ⚠ **顺序反了会红两条"环境敏感"用例** —— 这是已知行为，不是你的 bug，但 PR 里不许出现。
@@ -56,6 +56,28 @@ dotnet run --project "$root\tests\NationalSpireEconomy.Tests\NationalSpireEconom
   新加真相出口时必须让它继续绿；
 - 判断"钱有没有动"要**重新读盘**（换一个 `EconomyStore` 读回来），
   不要只看内存对象 —— 这个项目因此漏过两次真 bug。
+
+### 2.1 动钱开关的开关纪律（测试必读）
+
+`TradeConfirmationGate.SettlementWired` 是**进程级静态量**，一旦泄漏，同进程里后续
+每一个用例都会在"钱可以动"的状态下运行。**不要在测试里手写 `WireSettlement(true/false)` +
+`finally`**（历史上就是这么写的），改用 `using`：
+
+```csharp
+using (TradeConfirmationGate.WithSettlement(true))
+{
+    // …这一段里结算会真的动钱…
+}   // 离开作用域无条件还原，抛异常也还原
+```
+
+嵌套也是对的：它还原成**进入前那一层的值**，而不是一律还原成 `false`。
+
+### 2.2 判据别用进程级静态量
+
+`TradePreviewWiring.LastPreview` / `LastConfirmation` 是**跨用例共享**的静态量，
+而 `Clear(worldId)` 只清 `PendingByWorld`、**不清它们**。写用例时请按世界查
+（`PendingFor(worldId)` / `LastNoteOf(world)`），否则你断的可能是**上一个用例**留下的陈旧值
+（写回声用例时就这么被骗过一次，断到了一个不属于本用例的金额）。
 
 ### 3. 不要跑测试的时机
 

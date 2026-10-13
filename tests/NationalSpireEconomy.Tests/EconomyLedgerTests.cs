@@ -16,6 +16,7 @@ public static class EconomyLedgerTests
         RepeatedCreditWithSameKeyIsIgnored,
         RepeatedDebitWithSameKeyIsIgnored,
         InsufficientFundsLeavesEverythingUntouched,
+        BalanceOverflowIsReportedAsOverflowNotInsufficientFunds,
         LedgerIsRingCappedAtLimit,
         ReverseRestoresBalanceAndStats,
         ReverseIsItselfIdempotent,
@@ -45,15 +46,7 @@ public static class EconomyLedgerTests
 
     private static EconomyConfig RealConfig()
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null)
-        {
-            string candidate = Path.Combine(directory.FullName, "config");
-            if (File.Exists(Path.Combine(candidate, ConfigLoader.EconomyFileName)))
-                return new ConfigLoader(candidate, Silent).Load().Economy;
-            directory = directory.Parent;
-        }
-        throw new Exception("找不到 config/ 目录");
+        return new ConfigLoader(TestConfig.Directory(), Silent).Load().Economy;
     }
 
     private static EconomyWorld WorldWith(params (string Id, long Balance, string Tier)[] people)
@@ -142,6 +135,39 @@ public static class EconomyLedgerTests
         TestRunner.Equal(500L, world.Npcs["p0"].Balance, "余额不足时绝不能扣成负数");
         TestRunner.Equal(0, world.Npcs["p0"].Ledger.Count);
         TestRunner.Equal(0L, world.Npcs["p0"].SeasonStats.SeasonSpend);
+    }
+
+    /// <summary>
+    /// 余额加法溢出时必须报"溢出"，<b>不能</b>被回绕成负数再误报成余额不足。
+    /// <para>
+    /// 曾经这里是裸的 <c>npc.Balance + deltaUsd</c>：接近 <c>long.MaxValue</c> 的入账会静默
+    /// 回绕成负数，紧接着的 <c>if (after &lt; 0)</c> 把它报成 <c>InsufficientFunds</c> ——
+    /// 错误码与真实原因完全不符，排查时会被带偏。玩家侧 <c>ShadowPlayerWallet</c> 一直是
+    /// <c>checked</c> 的，所以这条同时也是"两侧强度必须一致"的钉子。
+    /// </para>
+    /// <para>
+    /// 可达性说明：经校验链的路径够不到（<c>AmountBoundsValidator</c> 上限 200,000），
+    /// 但 <c>EconomyTick.PayPrize</c> / <c>Credit</c> 由接线层以配置驱动金额直接调用，
+    /// 不在这条校验链后面。
+    /// </para>
+    /// </summary>
+    private static void BalanceOverflowIsReportedAsOverflowNotInsufficientFunds()
+    {
+        var world = WorldWith(("p0", long.MaxValue - 100, "elite"));
+        var ledger = new EconomyLedger(world);
+        long before = world.Npcs["p0"].Balance;
+
+        var result = ledger.Credit("p0", 1_000, Entry("赛事奖金", "一笔大到溢出的奖金"));
+
+        TestRunner.Equal(MoneyMoveStatus.Rejected, result.Status,
+            "★溢出必须是 Rejected，绝不能被回绕后报成 InsufficientFunds");
+        TestRunner.NotEqual(MoneyMoveStatus.InsufficientFunds, result.Status,
+            "★这条正是旧实现会给出的错误码");
+        TestRunner.Contains(result.Detail ?? "", "溢出", "原因里要写明是溢出");
+        TestRunner.Equal(before, world.Npcs["p0"].Balance, "溢出时余额一字不动");
+        TestRunner.True(world.Npcs["p0"].Balance > 0,
+            "★余额绝不能因为回绕变成负数");
+        TestRunner.Equal(0, world.Npcs["p0"].Ledger.Count, "溢出时不留流水");
     }
 
     private static void LedgerIsRingCappedAtLimit()

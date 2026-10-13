@@ -1,0 +1,12 @@
+﻿# 发布包哈希 (outside the pack, so no circular reference)
+
+| 发布包 | 字节 | SHA256 |
+| --- | --- | --- |
+| release/NationalSpireEconomy-二开-v0.1.0.zip | 212533 | 0D67BFD26003FA84BB4E37555B87EC349F73AE2A1D06593AF3C5AB9D0697E73A |
+
+Per-file hashes inside the pack: see its bundled SHA256SUMS.txt.
+
+Regenerate (do not hand-edit):  & .\build-deploy.ps1
+
+> The zip hash depends on the archiving tool/version. Prefer the bundled
+> SHA256SUMS.txt when verifying content integrity.

@@ -132,21 +132,30 @@ src/Game     ★ 唯一依赖游戏与上游程序集的适配层
 
 ## 三、后续注意事项
 
-### 3.1 ⚠ 交接前必须处理的一件事：署名/仓库地址不一致
+### 3.1 ✅ 已定案：署名保留 `Dora`
 
-远端仓库已是 `https://github.com/3085487039/NationalSpireEconomy.git`，
-但文档与发布包里写的仍是 `Dora` 与 `https://github.com/Dora/NationalSpireEconomy`：
+**维护者 2026-10-13 拍板：继续用 `Dora` 作显示名。**
 
-| 位置 | 现状（2026-10-12） |
+| 位置 | 定案后的值 |
 | --- | --- |
-| `LICENSE:2` | `Copyright (c) 2026 Dora` |
-| `NOTICE.md:13,15` | 作者 `Dora` / 仓库 `…/Dora/…` |
-| 发布包内 `LICENSE`、`NOTICE.md` | 同上（已打进 ZIP 与 ZIP 内目录） |
-| `git remote origin` | `…/3085487039/…` |
+| `LICENSE:2` | `Copyright (c) 2026 Dora`（**不改**） |
+| `NOTICE.md:13` | 作者 `Dora`（**不改**） |
+| `NOTICE.md:15` | 仓库地址 —— 见下 |
+| `git remote origin` | `https://github.com/3085487039/NationalSpireEconomy.git` |
 
-**需要维护者拍板**：署名统一成 `3085487039`（与真实账号一致），
-还是保留 `Dora` 作显示名、只把仓库地址改成 `3085487039`？
-定案后需一次性改完并**重打发布包**（ZIP 哈希会变，要同步 `SHA256SUMS-release.txt`）。
+**唯一遗留的小事**：`NOTICE.md:15` 的仓库地址若仍写着 `…/Dora/…`，
+它与真实的 `git remote`（`3085487039`）不一致 —— 那是**给玩家看的反馈入口**，
+写错了会让问题报不到地方。定案是"署名用 Dora、仓库地址用真实账号"。
+
+> 采纳哪个都不影响许可证合规（PolyForm 只要求传递许可证本身与出处声明，
+> 不要求署名必须是账号名）。改完地址跑一次 `build-deploy.ps1` 即可自动同步所有哈希。
+
+**重打发布包不再需要手工同步哈希**（2026-10-13 起）：`build-deploy.ps1` 会重建
+`release\` 与 zip 并自动写入 `SHA256SUMS-release.txt`。
+
+> ⚠ 别忘了一件事：`init-repo.ps1` 会往 `release\` 里回填署名/地址，而**回填会改包内文件、
+> 却不重算包内 `SHA256SUMS.txt`**。改这些请走 `build-deploy.ps1`（它先重建再算哈希），
+> 不要单独跑 `init-repo.ps1`。
 
 ### 3.2 设计约束（改代码前必须知道）
 
@@ -171,7 +180,7 @@ src/Game     ★ 唯一依赖游戏与上游程序集的适配层
 
 ### 3.4 工程纪律（血泪换来的，务必遵守）
 
-1. **两套基线顺序是硬约束**：零依赖先（**391/391**）、含游戏引用最后（**523/523**）。
+1. **两套基线顺序是硬约束**：零依赖先（**395/395**）、含游戏引用最后（**530/530**）。
    反了会红两条"环境敏感"用例（已知行为，不是 bug）。
 2. **打完包不要再跑零依赖基线** —— 会把 `bin/` 里的全量 DLL 覆盖成缩减版，
    随后真机加载的就是残废包。顺序永远是：跑基线 → 打包 → 部署。
@@ -200,9 +209,9 @@ git log --oneline                       # 应有 1 条首次提交
 git ls-files | Measure-Object -Line     # 140
 git status                              # 应为 clean
 
-# 发布包完整性
+# 发布包完整性（哈希以仓库根 SHA256SUMS-release.txt 为准，由 build-deploy.ps1 生成）
 Get-FileHash release\NationalSpireEconomy-二开-v0.1.0.zip -Algorithm SHA256
-# 期望 FE108F09C186693A51CAF73816B6AB55C7ACABC2CA9391D95B05ED9CBDD4CF40
+Get-Content SHA256SUMS-release.txt
 # 包内逐项核对：
 Get-Content release\NationalSpireEconomy-二开-v0.1.0\SHA256SUMS.txt
 
@@ -215,14 +224,17 @@ dotnet run --project tests\NationalSpireEconomy.Tests\NationalSpireEconomy.Tests
 
 | 项 | 值 |
 | --- | --- |
-| 仓库 | **140 个文件**，1 次提交 `15a6f71`，分支 `main` |
-| 发布包 | `release/NationalSpireEconomy-二开-v0.1.0.zip`，**203,419 字节**，`FE108F09…` |
-| 交付包 DLL / 线上 DLL | **一致**：`442880` / `7B593EF0…` |
-| 线上 `settlementWired` | `false`（已收尾） |
-| 基线 | 零依赖 **391/391**、含游戏引用 **523/523**、三种构建 **0 警告** |
-| DLL 迭代留档 | `C6F89483` → `B53D2D5C` → `4F89ED60` → **`7B593EF0`**（四版全部可回滚） |
+| 仓库 | **140 个文件**，2 次提交（`15a6f71` 首次、`2c722bb` 标记可见性） |
+| 发布包 | `release/NationalSpireEconomy-二开-v0.1.0.zip`，**210,673 字节**，`19612A8D…` |
+| 交付包 DLL / 线上 DLL | `458752` / `892FE1D1…`（bin / deploy / release **三处一致**） |
+| 线上 `settlementWired` | `false`（交付默认值） |
+| 基线 | 零依赖 **395/395**、含游戏引用 **530/530**、三种构建 **0 警告** |
+| 打包 | `build-deploy.ps1` 一条命令产出 deploy + release + zip + `SHA256SUMS-release.txt`；zip **可复现**（固定时间戳） |
 | 文档 | `docs/` 共 **11 份**（含索引 `docs/README.md`），覆盖阶段 0~4 全程交接与数十条坑位 |
 | 尚未完成 | `git push`（凭据不在本仓库）；GitHub Release 上传 ZIP |
+
+> **DLL 哈希会随代码改动而变**：上表的 `892FE1D1…` 是**当前工作区**（含未提交修复）实测值，
+> 并非线上 DLL。线上 DLL 的哈希请以 `docs/HANDOFF-PHASE-4-STEP5.md` §1 为准。
 
 ### 3.7 反馈问题时请附上的东西
 

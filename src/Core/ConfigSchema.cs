@@ -180,13 +180,19 @@ public sealed class InjectionConfig
     [JsonPropertyName("volatileEnabled")] public bool VolatileEnabled { get; set; } = true;
 
     /// <summary>
-    /// <b>挂载点体检</b>开关（方案 D）。打开时会在启动期打印程序集/类型副本清单、
-    /// 诊断通道绑定结论，并给四个关键方法挂上"只观测不改数据"的探针。
+    /// <b>排障探针</b>总开关（方案 D 的体检 + 旁路取证）。打开时启动期会打印程序集/类型副本清单、
+    /// 诊断通道绑定结论，给四个关键方法挂"只观测不改数据"的探针，并开启 <c>PathProbe</c>
+    /// 的旁路取证文件。
     /// <para>
-    /// 它是一次性排障工具：确认完"哪个方法真的被调用"之后可以关掉，回到只有注入的形态。
+    /// <b>默认 false</b>：挂载点问题在阶段 3/4 已经定案，而代价是实打实的 ——
+    /// <c>PathProbe</c> 给 19 个候选方法各挂 3 个补丁并在每次调用时同步写文件
+    /// （真机实测一次私信的 <c>Feed</c> 命中 4369 次）。要排查注入问题时再临时打开。
+    /// </para>
+    /// <para>
+    /// 环境变量 <c>NSE_PATH_PROBE=1</c> 可以额外强制打开旁路取证（不改配置的临时手段）。
     /// </para>
     /// </summary>
-    [JsonPropertyName("probeEnabled")] public bool ProbeEnabled { get; set; } = true;
+    [JsonPropertyName("probeEnabled")] public bool ProbeEnabled { get; set; }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

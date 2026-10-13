@@ -26,8 +26,39 @@ namespace NationalSpireEconomy.Trade;
 /// </summary>
 public sealed class TradeProtocol
 {
-    /// <summary>识别为交易标记的关键词（大小写不敏感）。</summary>
-    public static readonly string[] MarkerKeywords = ["Trade", "Buy"];
+    /// <summary>
+    /// 识别为交易标记的关键词（大小写不敏感）。
+    /// <para>
+    /// <b>★ 每一个"提示词让模型写"的标记都必须在这里登记</b>，否则玩家会在对话里看到它 ——
+    /// 真机为"标记显示给玩家"这件事来回过 4 轮（见 HANDOFF-PHASE-4-STEP5.md §6.6），
+    /// 而剥离器的关键词表就是这件事的最后一道闸。
+    /// </para>
+    /// <para>
+    /// <c>Deal</c> 是 <c>[Deal: accept]</c>（提示词要求模型"同意对方提出的交易时再写一行"）。
+    /// 它原先没在这张表里，于是**四个剥离出口全都漏掉它**，玩家会在私信里看到
+    /// <c>[Deal: accept]</c> —— 与当初 <c>[Trade: …]</c> 泄漏是同一个形状。
+    /// 它不需要被解析成意图（目前没有代码消费它，见 D1 决策），但必须被剥掉。
+    /// </para>
+    /// </summary>
+    public static readonly string[] MarkerKeywords = ["Trade", "Buy", "Deal"];
+
+    /// <summary>
+    /// 上面那张表里<b>只剥掉、不当意图解析</b>的关键词。
+    /// <para>
+    /// 目前只有 <c>Deal</c>（<c>[Deal: accept]</c>）：提示词让模型写，但没有代码消费它，
+    /// 而且它没有 <c>Kind</c>/<c>Amount</c> —— 拿去 <see cref="Parse"/> 只会产出一条
+    /// 假的 <c>PARSE_ERROR</c>。
+    /// </para>
+    /// <para>
+    /// 注意它与 <c>MarkerKeywords</c> 的关系：<b>剥掉是必须的，解析是可选的</b>。
+    /// 将来若决定真的消费 <c>[Deal: accept]</c>（D1 决策的另一个分支），
+    /// 就把它从这张表里移走并补上解析逻辑。
+    /// </para>
+    /// </summary>
+    public static readonly string[] StripOnlyKeywords = ["Deal"];
+
+    /// <summary>这个关键词是否属于"只剥不解析"。</summary>
+    private const string StripOnlyKeyword = "Deal";
 
     /// <summary>
     /// 待定缓冲的长度上限。正常情况下一个标记几十个字符就结束了；
@@ -274,6 +305,15 @@ public sealed class TradeProtocol
             cleanBody.Append(group);
             return;
         }
+
+        // ★ 只剥不解析的标记：`[Deal: accept]`。
+        //
+        // 提示词要求模型"同意对方提出的交易时再写一行 [Deal: accept]"，
+        // 但目前**没有代码消费它**（NPC 那一票来自 [Trade: …] 本身）。
+        // 它必须被剥掉（否则玩家在私信里看得到机器语法，与 [Trade:] 泄漏是同一个形状），
+        // 但不能当交易意图去解析 —— 它没有 Kind/Amount，硬解会产出一条假的 PARSE_ERROR，
+        // 在日志里刷出一堆"标记解析失败"，把真正的故障淹掉。
+        if (keyword.Equals(StripOnlyKeyword, StringComparison.OrdinalIgnoreCase)) return;
 
         _collected.Add(Parse(group, keyword));
     }

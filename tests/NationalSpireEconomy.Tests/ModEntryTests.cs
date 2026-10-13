@@ -297,14 +297,8 @@ public static class ModEntryTests
 
     private static string RealConfigDirectory()
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null)
-        {
-            string candidate = Path.Combine(directory.FullName, "config");
-            if (File.Exists(Path.Combine(candidate, ConfigLoader.EconomyFileName))) return candidate;
-            directory = directory.Parent;
-        }
-        throw new Exception("找不到 config/ 目录");
+        // 收敛到共享实现（原先 19 个文件各抄一份）。
+        return TestConfig.Directory();
     }
 
     private static void ValidConfigEnablesMod()
@@ -510,7 +504,17 @@ public static class ModEntryTests
         if (!godotAssemblyLoaded)
         {
             // 最常见的情况：进程里根本没有 GodotSharp，防护①就拦住了，绝不会崩。
-            TestRunner.True(true, "GodotSharp 未加载，路径解析走文件系统回退");
+            //
+            // ⚠ 这里曾经写的是 `True(true, ...)` —— 一条恒真的断言，什么都不验。
+            //   现在改成验【真正的契约】：在"没有原生运行时"的进程里，
+            //   ResolveDataRoot 必须仍然给出一个可用的绝对路径（走文件系统回退），
+            //   而不是抛异常、也不是返回空。这正是这条用例存在的意义：
+            //   它证明"不碰 Godot 也能把根目录解析出来"。
+            string? fallback = EconomyModEntry.ResolveDataRoot(Silent);
+            TestRunner.True(!string.IsNullOrWhiteSpace(fallback),
+                "★没有 GodotSharp 时必须走文件系统回退并给出路径（返回空 = 调用方会拿到 null 根）");
+            TestRunner.True(Path.IsPathRooted(fallback!),
+                "回退结果必须是绝对路径，实际：<" + fallback + ">");
             return;
         }
 

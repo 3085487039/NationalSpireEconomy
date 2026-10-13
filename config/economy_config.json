@@ -144,7 +144,7 @@
     "_comment": "注入开关。模板正文在 ai_prompt_economy.json；此处只控制是否启用稳定段与易变段。两个开关并列，不是主从关系：只注入 S 段就把 volatileEnabled 关掉，反之亦然。两段各自在 ai_prompt_economy.json 里还有一份同名开关（那边的值是字符串），两边都开才注入。",
     "stableEnabled": true,
     "volatileEnabled": true,
-    "_commentProbe": "挂载点体检（方案 D，排障用）。true 时启动期打印程序集/类型副本清单与诊断通道绑定结论，并给 RequestPrivateAsync / Compose / Context / Feed 挂上只观测不改数据的探针；玩家推进一天时会在 [Economy-Tick] 行附带四个探针的命中计数。确认完挂载点后可以改成 false。",
-    "probeEnabled": true
+    "_commentProbe": "挂载点体检（方案 D，排障用）。true 时启动期打印程序集/类型副本清单与诊断通道绑定结论，并给 RequestPrivateAsync / Compose / Context / Feed 挂上只观测不改数据的探针；玩家推进一天时会在 [Economy-Tick] 行附带四个探针的命中计数。默认 false：挂载点在阶段 3/4 早已确认完毕，正常游玩不需要它；排查注入问题时再临时改成 true（改完重启）。",
+    "probeEnabled": false
   }
 }

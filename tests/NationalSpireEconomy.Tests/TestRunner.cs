@@ -8,7 +8,9 @@ public static class TestRunner
 {
     private static int _passed;
     private static int _failed;
+    private static int _skipped;
     private static readonly List<string> Failures = [];
+    private static readonly List<string> Skips = [];
 
     public static void Run(params (string Suite, Action[] Cases)[] suites)
     {
@@ -19,11 +21,25 @@ public static class TestRunner
             foreach (var test in cases)
             {
                 string name = test.Method.Name;
+                _currentSuite = suite;
+                _currentTest = name;
+                _skipReason = null;
                 try
                 {
                     test();
-                    _passed++;
-                    Console.WriteLine($"  PASS  {name}");
+                    if (_skipReason != null)
+                    {
+                        // 用例主动声明"环境不具备，这次没验到"。
+                        _skipped++;
+                        Skips.Add($"{suite}.{name}: {_skipReason}");
+                        Console.WriteLine($"  SKIP  {name}");
+                        Console.WriteLine($"        {_skipReason}");
+                    }
+                    else
+                    {
+                        _passed++;
+                        Console.WriteLine($"  PASS  {name}");
+                    }
                 }
                 catch (Exception e)
                 {
@@ -36,11 +52,25 @@ public static class TestRunner
                         foreach (string frame in e.StackTrace.Split('\n').Take(4))
                             Console.WriteLine("          " + frame.Trim());
                 }
+                finally
+                {
+                    _currentSuite = null;
+                    _currentTest = null;
+                    _skipReason = null;
+                }
             }
         }
 
         Console.WriteLine();
-        Console.WriteLine($"总计 {_passed + _failed}：通过 {_passed}，失败 {_failed}");
+        Console.WriteLine($"总计 {_passed + _failed + _skipped}：通过 {_passed}，失败 {_failed}，跳过 {_skipped}");
+        if (_skipped > 0)
+        {
+            // ★ 跳过必须显眼：这是"最贵的回归测试在干净环境里悄悄变成空操作"的解药。
+            //   以前用例只能 `return`，输出上与 PASS 毫无区别，于是没人知道它没验到。
+            Console.WriteLine();
+            Console.WriteLine("跳过明细（环境不具备，这些用例这次【没有】验证任何东西）：");
+            foreach (string skip in Skips) Console.WriteLine("  - " + skip);
+        }
         if (_failed > 0)
         {
             Console.WriteLine();
@@ -50,6 +80,33 @@ public static class TestRunner
     }
 
     public static int ExitCode => _failed == 0 ? 0 : 1;
+
+    // ── 跳过 ──────────────────────────────────────────────────────────
+
+    private static string? _currentSuite;
+    private static string? _currentTest;
+    private static string? _skipReason;
+
+    /// <summary>
+    /// 声明"本用例需要的环境不具备，这次没有验证任何东西"，然后<b>立即返回</b>。
+    /// <para>
+    /// <b>为什么需要它</b>：以前这几条用例只能裸 <c>return</c>，输出上与 <c>PASS</c>
+    /// 完全一样 —— 于是"多副本挂载"这种最贵的回归测试，在没有上游 DLL 的干净环境里
+    /// （比如 CI）会**静默变成空操作**，而没人看得出来。跳过统计与明细就是为了让这件事可见。
+    /// </para>
+    /// <example>
+    /// <code>
+    /// if (probe == null) { TestRunner.Skip("找不到可用于多副本验证的 DLL"); return; }
+    /// </code>
+    /// </example>
+    /// </summary>
+    public static void Skip(string reason)
+    {
+        _skipReason = reason;
+    }
+
+    /// <summary>本进程累计跳过的用例数（供"跳过会不会太多"这类自查用）。</summary>
+    public static int SkippedCount => _skipped;
 
     // ── 断言 ──────────────────────────────────────────────────────────
 

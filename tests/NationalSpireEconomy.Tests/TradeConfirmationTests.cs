@@ -180,15 +180,7 @@ public static class TradePreviewTests
 
     private static ConfigLoadResult RealConfig()
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null)
-        {
-            string candidate = Path.Combine(directory.FullName, "config");
-            if (File.Exists(Path.Combine(candidate, ConfigLoader.EconomyFileName)))
-                return new ConfigLoader(candidate, Silent).Load();
-            directory = directory.Parent;
-        }
-        throw new Exception("找不到 config/ 目录");
+        return new ConfigLoader(TestConfig.Directory(), Silent).Load();
     }
 
     private static TradeEngine Engine() => new(RealConfig().Economy, RealConfig().Personality,
@@ -290,7 +282,8 @@ public static class TradeConfirmationTests
         PlayerConfirmDoesNotCountAsNpc,
         ConfirmRefusesExpiredOffer,
         DeclineStopsTheDeal,
-        SettlementIsDeliberatelyNotWired
+        SettlementIsDeliberatelyNotWired,
+        WithSettlementRestoresTheSwitchEvenWhenTheBodyThrows
     ];
 
     private static void ConfirmIsIdempotentPerSide()
@@ -371,21 +364,63 @@ public static class TradeConfirmationTests
             "说明里要写清结算属于第二步");
     }
 
+    /// <summary>
+    /// <see cref="TradeConfirmationGate.WithSettlement"/> 必须在离开作用域时<b>无条件</b>还原，
+    /// 包括作用域里抛异常的那条路径。
+    /// <para>
+    /// 为什么值得单独钉一条：<c>SettlementWired</c> 是<b>进程级</b>静态量，一旦泄漏，
+    /// 同进程里后续每一个用例都会在"钱可以动"的状态下运行 —— 那是本项目最贵的副作用。
+    /// 用 <c>using</c> 把这个纪律交给编译器，而不是交给"我记得写 finally"。
+    /// </para>
+    /// </summary>
+    private static void WithSettlementRestoresTheSwitchEvenWhenTheBodyThrows()
+    {
+        TestRunner.False(TradeConfirmationGate.SettlementWired,
+            "前置：进入用例时开关应当是关的（默认值）");
+
+        using (TradeConfirmationGate.WithSettlement(true))
+        {
+            TestRunner.True(TradeConfirmationGate.SettlementWired, "作用域内应当是开着的");
+        }
+
+        TestRunner.False(TradeConfirmationGate.SettlementWired, "★离开作用域必须还原成关");
+
+        // 异常路径：using 的 Dispose 仍然要跑。
+        try
+        {
+            using (TradeConfirmationGate.WithSettlement(true))
+            {
+                TestRunner.True(TradeConfirmationGate.SettlementWired, "作用域内应当是开着的");
+                throw new InvalidOperationException("故意抛，模拟断言失败/中途异常");
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // 预期之内。
+        }
+
+        TestRunner.False(TradeConfirmationGate.SettlementWired,
+            "★作用域里抛异常时也必须还原（否则一次失败的用例会污染后面所有用例）");
+
+        // 嵌套时应当逐层还原到进入前那一层的值，而不是一律还原成 false。
+        using (TradeConfirmationGate.WithSettlement(true))
+        {
+            using (TradeConfirmationGate.WithSettlement(false))
+                TestRunner.False(TradeConfirmationGate.SettlementWired, "内层应当临时关掉");
+
+            TestRunner.True(TradeConfirmationGate.SettlementWired, "★离开内层应当还原成外层那一层的值");
+        }
+
+        TestRunner.False(TradeConfirmationGate.SettlementWired, "最外层离开后回到默认");
+    }
+
     // ── 脚手架 ───────────────────────────────────────────────────────
 
     private static readonly DelegateEconomyLog Silent = new((_, _, _, _) => { });
 
     private static ConfigLoadResult RealConfig()
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null)
-        {
-            string candidate = Path.Combine(directory.FullName, "config");
-            if (File.Exists(Path.Combine(candidate, ConfigLoader.EconomyFileName)))
-                return new ConfigLoader(candidate, Silent).Load();
-            directory = directory.Parent;
-        }
-        throw new Exception("找不到 config/ 目录");
+        return new ConfigLoader(TestConfig.Directory(), Silent).Load();
     }
 
     private static TradeEngine Engine() => new(RealConfig().Economy, RealConfig().Personality,

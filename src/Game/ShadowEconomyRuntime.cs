@@ -302,8 +302,7 @@ public sealed class ShadowEconomyRuntime
                       (result.SalariesPaid > 0
                           ? $"，发薪 {result.SalariesPaid} 人共 {MoneyUnits.Format(result.SalaryTotalUsd)}"
                           : "") +
-                      $"｜{source}" + ComposeHintFor(source, PrivateMessagePatch.Invocations) + ProbeNoteFor(source);
-        Emit(line);
+                      $"｜{source}" + ComposeHintFor(source, PrivateMessagePatch.Invocations) + ProbeNoteFor(source);        Emit(line);
         _log.Info("tick", line.Replace("[Economy-Tick] ", ""));
 
         return result;
@@ -316,13 +315,42 @@ public sealed class ShadowEconomyRuntime
     /// 命中过一次之后这句自动消失（不会长期刷日志）；自证用的推进不带它，免得启动日志里多一句噪音。
     /// </para>
     /// <para>
-    /// 写成"纯函数 + 显式传入计数"是为了能直接单测，而不必依赖"进程里还没发生过一次注入"这种顺序前提。
+    /// <b>⚠ 它曾经是一句永久的假话</b>：方案 A 接管之后旧的 Compose 注入补丁被
+    /// <c>MarkRetired</c> 停用，而 <c>Invocations</c> 只由那个补丁递增 ⇒ 计数**永远是 0**，
+    /// 于是这句提醒每推进一天就刷一次，把接手者往"挂载点坏了"的方向引
+    /// （真相是：那个挂载点已经按设计退场了，见 HANDOFF-PHASE-3-PROBE.md §4.2）。
+    /// </para>
+    /// <para>
+    /// 现在按补丁的<b>实际状态</b>分叉：它已按设计退场 ⇒ 不再把这句写成故障；
+    /// 只有"装过但从未命中"才是真正需要提醒的情形（那才是阶段 3-A 那个事故的形状）。
+    /// 三个参数全部显式传入，所以它是**纯函数**、可以直接单测两个分支，不依赖进程状态。
     /// </para>
     /// </summary>
-    public static string ComposeHintFor(string source, int composeInvocations) =>
-        source == TickSourceGame && composeInvocations == 0
-            ? "｜私信组装补丁 0 次（已发过私信的话，说明挂载点没被调用）"
-            : "";
+    public static string ComposeHintFor(string source, int composeInvocations)
+        => ComposeHintFor(source, composeInvocations,
+            patchApplied: PrivateMessagePatch.Applied,
+            patchRetired: PrivateMessagePatch.IsRetired);
+
+    /// <summary>
+    /// 纯函数重载：<paramref name="patchRetired"/> 表示"该挂载点已按设计退场"。
+    /// <para>
+    /// 它必须是**显式参数**而不是在这里回头去读 <c>PrivateMessagePatch</c> 的静态状态：
+    /// 读全局状态的写法没法在单测里构造"已退场"这个分支（测试进程里那个补丁压根没被装配过），
+    /// 于是那条断言只能靠"恰好处于某个状态"才成立 —— 本项目在别处正是被这种写法坑过。
+    /// </para>
+    /// </summary>
+    public static string ComposeHintFor(string source, int composeInvocations, bool patchApplied, bool patchRetired)
+    {
+        if (source != TickSourceGame || composeInvocations != 0) return "";
+
+        // 已按设计退场 ⇒ 这句不该再出现。计数恒为 0 是因为补丁不在了，不是因为挂载点坏了；
+        // 继续刷这句会把排查带向错误的方向（HANDOFF-PHASE-3-PROBE.md §4.2）。
+        if (patchRetired) return "";
+
+        // 还挂着却一次都没命中 —— 这才是真要提醒的形状。
+        _ = patchApplied;
+        return "｜私信组装补丁 0 次（已发过私信的话，说明挂载点没被调用）";
+    }
 
     /// <summary>
     /// 挂载点体检的计数摘要，附在**玩家推进日期**时的那一行上。

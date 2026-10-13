@@ -178,7 +178,27 @@ public sealed class EconomyLedger
         if (!_world.Npcs.TryGetValue(personId, out var npc))
             return new MoneyMoveResult(MoneyMoveStatus.Rejected, deltaUsd, 0, key, Detail: $"账本里没有 {personId}。");
 
-        long after = npc.Balance + deltaUsd;
+        // ★ 溢出必须显式检查（checked），与玩家侧 ShadowPlayerWallet 的写法保持一致。
+        //
+        // 曾经这里是裸的 `npc.Balance + deltaUsd`：接近 long.MaxValue 的入账会静默回绕成
+        // 负数，紧接着下面的 `if (after < 0)` 会把它误报成 InsufficientFunds ——
+        // 错误码与真实原因完全不符，排查时会被带偏。
+        //
+        // 经校验链的路径够不到这里（AmountBoundsValidator 上限 200,000），但
+        // EconomyTick.PayPrize / Credit 是由接线层以配置驱动金额直接调用的，
+        // 不在这条校验链后面 —— 所以这里的守卫是有实际意义的，不只是洁癖。
+        long after;
+        try
+        {
+            after = checked(npc.Balance + deltaUsd);
+        }
+        catch (OverflowException)
+        {
+            return new MoneyMoveResult(MoneyMoveStatus.Rejected, deltaUsd, npc.Balance, key,
+                Detail: $"余额溢出：{MoneyUnits.Format(npc.Balance)} 加上 " +
+                        $"{MoneyUnits.Format(deltaUsd)} 超出可表示范围，本次未改动任何数字。");
+        }
+
         if (after < 0)
             return new MoneyMoveResult(MoneyMoveStatus.InsufficientFunds, deltaUsd, npc.Balance, key,
                 Detail: $"余额 {MoneyUnits.Format(npc.Balance)} 不足以支出 {MoneyUnits.Format(-deltaUsd)}。");

@@ -46,12 +46,14 @@ public static class PlanAInjectionTests
         PlayerConfirmCommandSurvivesVanillaWrapper,
         PlayerConfirmSettlesWhenSwitchIsOn,
         RejectedIntentBecomesVisibleNotSettledNote,
+        EchoOfPlayerTextNeverBecomesAnOffer,
         SettledReceiptReachesTheVolatileSegment,
         PlayerDeclineBecomesVisibleNotSettledNote,
         TransferClaimSentinelTellsTheLedgerTruth,
         PlayerVoteSurvivesExpiredIdentitySlot,
         ReConfirmingSettledOfferRePersistsTheReceipt,
         OtherOffersMustNotClobberTheSettledReceipt,
+        ConfirmedButNoLedgerEvidenceIsNotClaimedSettled,
         EveryTruthWriteSurvivesAReload,
         StateMachineFieldsReadByType
     ];
@@ -509,6 +511,17 @@ public static class PlanAInjectionTests
         TestRunner.Equal("[Match: something]", Strip("[Match: something]"),
             "原版自己的标记必须原样放行，不能被我们碰");
 
+        // ⑧ ★ 提示词让模型写的**每一个**标记都必须能被剥掉。
+        //    这条是"玩家不该在对话里看到机器语法"的兜底：只要提示词新增一种标记，
+        //    而剥离器没跟上，玩家就会看到它 —— 真机为这件事来回过 4 轮。
+        //    `[Deal: accept]` 正是提示词明确要求模型输出的那一行
+        //    （见 config/ai_prompt_economy.json 的 stableBlockSuffix）。
+        TestRunner.NotContains(
+            Strip("行吧，那就这么定了。\n[Deal: accept]"),
+            "[Deal:", "★提示词要求模型写的 [Deal: accept] 也必须被剥掉，否则玩家会看到它");
+        TestRunner.NotContains(
+            Strip("[Deal: accept]"),
+            "Deal", "★单独一行时也必须剥干净");
         // ⑦ 空/纯空白输入不抛异常、不报告改动。
         TestRunner.Equal("", Strip(""));
         TestRunner.Equal("   ", Strip("   "));
@@ -764,8 +777,9 @@ public static class PlanAInjectionTests
             "前置：原版 Credits 是 0 —— 用它算出来的余额就是 $0");
 
         // 与私信路径同源：WorldFor(data) 会 EnsureWorld + 一次性导入玩家钱包（EnsureWorld 不导入）。
-        var world = runtime.WorldFor(data)!;
+        var world = runtime.WorldFor(data);
         TestRunner.True(world != null, "前置：应能建立影子世界");
+        if (world == null) return;
         TestRunner.True(world.Player.Imported, "前置：WorldFor 会做一次性导入");
 
         // 把影子余额推到 $100,000：两个数字从此明确分叉。
@@ -1099,7 +1113,106 @@ public static class PlanAInjectionTests
     }
 
     /// <summary>
-    /// <b>真机症状 3 的回归</b>：结算之后玩家<b>不翻日志</b>也要能知道成了。
+    /// <b>回声保护的端到端回归</b>：模型回复里逐字引用了<b>玩家本轮刚打过的那行标记</b>时，
+    /// 绝不能变成一张交易单 —— 否则就等于"模型复读玩家的字 ⇒ 替 NPC 同意了这笔交易"，
+    /// 到了动钱那一步就是真实的错误扣款（真机原话："这行字你从哪抄来的"）。
+    /// <para>
+    /// <b>为什么必须有这一条</b>：此前只有 <c>TradeIntentCompleterTests.EchoOfPlayerTextIsDetected</c>
+    /// 覆盖了<b>判定函数本身</b>的返回值，而"判定为回声 ⇒ 落单流程提前返回"这条因果链
+    /// <b>完全没有测试</b>。也就是说：如果哪天有人在 <c>HandleModelIntent</c> 里漏掉这个调用，
+    /// 或者拿到返回值却忘了用，全部用例照样全绿 —— 而这正是本项目反复栽过的
+    /// "我测过的那条路 ≠ 真机走的那条路"。这一条把因果链接上。
+    /// </para>
+    /// </summary>
+    private static void EchoOfPlayerTextNeverBecomesAnOffer()
+    {
+        Setup();
+        var runtime = EconomyModEntry.Runtime!;
+        string worldId = "echo-guard";
+        var world = runtime.EnsureWorld(worldId, Facts())!;
+        PrivateIdentitySlot.Set(worldId, NpcId, NpcId, 12, 1, "test", Data(worldId));
+        TradePreviewWiring.Clear(worldId);
+
+        long npcBefore = world.Npcs[NpcId].Balance;
+        long playerBefore = world.Player.Balance;
+        string moneyBefore = TradePreviewTests.MoneySnapshot(Ctx(world));
+        string moneyBeforeBalances = TradePreviewTests.BalanceSnapshot(Ctx(world));
+        int offersBefore = world.Offers.Count;
+
+        // 金额按【这一局的余额】算，不能写死 —— 这正是本项目踩过三次的坑
+        // （PROJECT-SUMMARY §3.4 与 HANDOFF-STEP2 §10 第 19/22/25 条）：
+        //   · 太小 → PERSONALITY_LOW_EMOTION（情绪值 = 金额 ÷ max(500, 余额×10%) 必须 ≥ 1.00）
+        //   · 太大 → PERSONALITY_CAP
+        // 取余额的 30% 并夹在单笔上限内，同时留出 +100 给对照组用。
+        long amount = Math.Clamp(npcBefore * 3 / 10, 1_000, 50_000);
+
+        // 玩家本轮自己打了这行标记（真机验收时就是这么踩到的）。
+        string marker = $"[Trade: 赞助, Amount: {amount}, Direction: npcToPlayer]";
+        string playerLine = $"赞助我 {amount} 块，{marker}";
+        TradePreviewWiring.RememberPlayerTexts(worldId, [playerLine]);
+
+        // 模型原样复读了它 —— 逐字相同。
+        var echoed = new TradeIntent(TradeKinds.Sponsor, TradeDirections.NpcToPlayer, NpcId,
+            EconomyTier.PlayerId, amount, [], "引用玩家的话", marker);
+
+        TestRunner.True(TradeIntentCompleter.LooksLikePlayerEcho(echoed, [playerLine]),
+            "前置：这一条必须被判成回声（否则本用例测的不是回声路径）");
+
+        TradePreviewWiring.HandleModelIntent(echoed, Silent);
+
+        // ★ 因果链的四条断言：不落单、不生成预览、不动钱、不写"未成立"。
+        TestRunner.Equal(offersBefore, world.Offers.Count,
+            "★回声不得产生任何交易单（否则就是替 NPC 同意了它没同意过的交易）");
+        TestRunner.True(TradePreviewWiring.PendingFor(worldId) == null,
+            "★回声不得留下待确认预览（否则界面会显示一笔根本不存在的交易）");
+        TestRunner.Equal(moneyBefore, TradePreviewTests.MoneySnapshot(Ctx(world)),
+            "★回声绝不能动钱");
+        TestRunner.Equal(npcBefore, world.Npcs[NpcId].Balance, "NPC 余额一字不动");
+        TestRunner.Equal(playerBefore, world.Player.Balance, "玩家影子余额一字不动");
+        TestRunner.True(TradePreviewWiring.LastNoteOf(world) == null,
+            "★回声是「模型在引用玩家的话」，不是一笔没谈成的交易——不该写成「未成立」");
+
+        // 对照组：同样的标记，但玩家本轮【没】说过 —— 这次必须正常落单。
+        // 没有这一步，上面四条断言可能会被"落单路径整个坏掉了"蒙混过关。
+        //
+        // ⚠ 两个坑（第一次写这条用例时各踩了一次）：
+        //   1. 判据必须用 PendingFor(worldId)（按世界查）而**不是** LastPreview ——
+        //      LastPreview 是**进程级静态量**，Clear(worldId) 只清 PendingByWorld，
+        //      从不清它，所以它可能是上一个用例留下的陈旧预览（实测断到 10000）。
+        //   2. **金额必须换一个**：意图级幂等键是
+        //      `intent:{世界}:{发起方}:{对手方}:{Kind}:{金额}:{天}`（IdempotencyValidator.IntentKey），
+        //      同样的金额在同一天只能提交一次 —— 用原金额会撞 `ALREADY_APPLIED`
+        //      而不是走落单路径。这不是缺陷，是刻意的防重（"模型重试又发了一遍"）。
+        long controlAmount = amount + 100;
+        string controlMarker = $"[Trade: 赞助, Amount: {controlAmount}, Direction: npcToPlayer]";
+        var fresh = new TradeIntent(TradeKinds.Sponsor, TradeDirections.NpcToPlayer, NpcId,
+            EconomyTier.PlayerId, controlAmount, [], "对照组报价", controlMarker);
+
+        TradePreviewWiring.RememberPlayerTexts(worldId, []);
+        TradePreviewWiring.HandleModelIntent(fresh, Silent);
+
+        var preview = TradePreviewWiring.PendingFor(worldId);
+        var note = TradePreviewWiring.LastNoteOf(world);
+        TestRunner.True(preview != null,
+            "对照组：玩家没说过这句话时，同样的标记必须正常落单（否则本用例只证明了「落单坏了」）" +
+            "｜实际结论：" + (note?.Status ?? "<无>") + "｜" + (note?.Reason ?? "<无原因>") +
+            "｜世界：" + worldId + "｜报价 " + controlAmount);
+        TestRunner.Equal(controlAmount, preview!.AmountUsd, "对照组：金额应当就是标记里那个");
+        // npc_to_player 这笔里 NPC 是【发起方】（出钱方），玩家才是对手方 —— 别断反了。
+        TestRunner.Equal(NpcId, preview.Initiator.PartyId, "对照组：发起方应当是那个 NPC");
+        TestRunner.True(preview.Counterparty.IsPlayer, "对照组：对手方应当是玩家");
+        TestRunner.Equal(offersBefore + 1, world.Offers.Count, "对照组：应当多出一张单");
+        // ⚠ 这里只能用 BalanceSnapshot（余额 + 流水，不含 offers 计数）——
+        //   MoneySnapshot 把 `offers=N` 也算进去，而对照组**本来就**会多出一张单，
+        //   用它会得到一个永远不等的比较（第一次写就踩了这个）。
+        TestRunner.Equal(moneyBeforeBalances, TradePreviewTests.BalanceSnapshot(Ctx(world)),
+            "对照组：落单仍不动钱（Reserve 的既有契约）");
+
+        TradePreviewWiring.Clear(worldId);
+    }
+
+    /// <summary>
+    /// 结算之后玩家<b>不翻日志</b>也要能知道成了。
     /// <para>
     /// 这里钉三件事：① 结算真的发生了（钱动了）；② 之后<b>开关已关</b>、同一张单再来一次标记命中幂等闸时，
     /// V 段给的仍然是"已结算"的回执——回执是终局事实，不许被任何后续"未成立"覆盖；
@@ -1534,6 +1647,97 @@ public static class PlanAInjectionTests
     }
 
     /// <summary>
+    /// <b>只有 <c>Confirmed</c> 状态、而账本里找不到对应流水时，绝不许宣称「已结算」</b>。
+    /// <para>
+    /// 为什么这是真实可达的：<c>TradeEngine.Confirm</c> 在**幂等命中**时也会把单子置成
+    /// <c>Confirmed</c>，而它的判据只是收据本；收据会被裁剪，NPC 流水本身又是
+    /// 每 NPC 64 条的**环形**（<see cref="NpcEconomy.MaxLedgerEntries"/>）。
+    /// 于是一张很久以前结算过的单，完全可能只剩一个状态位与一个**悬空的**流水 id。
+    /// </para>
+    /// <para>
+    /// 旧写法在这种情形下会照着"此前结算过"重建一条带余额的回执 —— 那是**仅凭状态位
+    /// 替账本撒谎**，而这条真相通道的全部意义就是"钱到底动没动"。
+    /// 现在改成"无法核实"：既不说已结算（我们不知道），也不说没动过（很可能真动过）。
+    /// </para>
+    /// </summary>
+    private static void ConfirmedButNoLedgerEvidenceIsNotClaimedSettled()
+    {
+        Setup();
+        var runtime = EconomyModEntry.Runtime!;
+        string worldId = "note-no-evidence";
+        var world = runtime.EnsureWorld(worldId, Facts())!;
+        PrivateIdentitySlot.Set(worldId, NpcId, NpcId, 12, 1, "test", Data(worldId));
+        TradePreviewWiring.Clear(worldId);
+        TradePreviewWiring.RememberPlayerTexts(worldId, []);
+        TradePreviewWiring.ResetNote(world);
+
+        // 手工造一张"已确认"的单，但**流水 id 是悬空的**（账本里根本没有它）。
+        // 这正是"很久以前结算过、流水已被环形裁剪"的形状。
+        const string offerId = "oGhost";
+        world.Offers[offerId] = new TradeOffer
+        {
+            Id = offerId,
+            Kind = TradeKinds.Sponsor,
+            Direction = TradeDirections.NpcToPlayer,
+            InitiatorId = NpcId,
+            CounterpartyId = EconomyTier.PlayerId,
+            Amount = 5_000,
+            State = TradeOfferStates.Confirmed,
+            CreatedDay = 12,
+            Season = 1,
+            ExpiresDay = 26,
+            LedgerEntryId = "deadbeefdeadbeefdeadbeefdeadbeef"   // ← 不在任何流水里
+        };
+
+        var status = TradePreviewWiring.ApplyPlayerAnswer(worldId, offerId, confirm: true, Silent, "单元测试");
+        TestRunner.True(status != null, "前置：表态应被登记");
+
+        var note = TradePreviewWiring.LastNoteOf(world);
+        TestRunner.True(note != null, "★这种情况也必须留下一条结论（不能一声不吭）");
+        TestRunner.False(note!.Settled,
+            "★账本里没有流水证据时，绝不能算作「已结算」");
+        TestRunner.Equal(TradeNoteStatuses.Unverified, note.Status, "应当是「无法核实」这一档");
+        TestRunner.NotContains(note.Receipt, "已结算",
+            "★回执里不许出现「已结算」——那是仅凭状态位替账本撒谎");
+        TestRunner.NotContains(note.Receipt, "钱一分没动",
+            "★也不能反过来说没动过（它很可能真动过，那是另一种撒谎）");
+        TestRunner.Contains(note.Receipt, "无法核实", "要如实说无法核实");
+        TestRunner.Contains(note.Detail, "audit",
+            "要告诉玩家去哪儿查（审计文件是权威依据）");
+
+        // 对照组：同一张单，但流水**真的在**账本里 ⇒ 必须理直气壮地说「已结算」。
+        // 没有这一步，"永远说无法核实"也能让上面全部通过。
+        var real = new EconomyLedger(world).Credit(NpcId, 1, new LedgerEntry
+        {
+            Day = 12, Season = 1, Kind = TradeKinds.Sponsor, Title = "对照：真实流水"
+        });
+        world.Offers["oReal"] = new TradeOffer
+        {
+            Id = "oReal",
+            Kind = TradeKinds.Sponsor,
+            Direction = TradeDirections.NpcToPlayer,
+            InitiatorId = NpcId,
+            CounterpartyId = EconomyTier.PlayerId,
+            Amount = 5_000,
+            State = TradeOfferStates.Confirmed,
+            CreatedDay = 12,
+            Season = 1,
+            ExpiresDay = 26,
+            LedgerEntryId = real.LedgerEntryId
+        };
+        TradePreviewWiring.ResetNote(world);
+        TradePreviewWiring.ApplyPlayerAnswer(worldId, "oReal", confirm: true, Silent, "单元测试");
+
+        var realNote = TradePreviewWiring.LastNoteOf(world);
+        TestRunner.True(realNote != null && realNote.Settled,
+            "对照组：流水真的在账本里时，必须照常说「已结算」（否则这条闸会把真话也挡掉）");
+        TestRunner.Contains(realNote!.Receipt, "已结算", "对照组回执要说已结算");
+
+        TradePreviewWiring.ResetNote(world);
+        TradePreviewWiring.Clear(worldId);
+    }
+
+    /// <summary>
     /// <b>把"写了真相就必须落盘"这条不变量变成测试</b>（真机连踩三次的教训）。
     /// <para>
     /// 真机前两次失败都是同一个形状：**内存里记了、盘上什么都没有**——
@@ -1668,14 +1872,8 @@ public static class PlanAInjectionTests
 
     private static string RealConfigDirectory()
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null)
-        {
-            string candidate = Path.Combine(directory.FullName, "config");
-            if (File.Exists(Path.Combine(candidate, ConfigLoader.EconomyFileName))) return candidate;
-            directory = directory.Parent;
-        }
-        throw new Exception("找不到 config/ 目录");
+        // 收敛到共享实现（原先 19 个文件各抄一份）。
+        return TestConfig.Directory();
     }
 }
 #endif

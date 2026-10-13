@@ -724,6 +724,50 @@ public static class TradePreviewWiring
         {
             // 结算在按钮回调里跑，绝不能抛出去。
             logger.Error("settle", "[Economy-Settle] 组装/调用结算时抛异常（已忽略）：" + e.GetType().Name, e);
+
+            // ★ 必须给玩家与模型留下一条结论。
+            //
+            // 为什么：`TradeSettlement.Settle` 内部有自己的 try/catch 与 `Finish`，
+            // 所以"钱动没动"这件事它自己会落盘。但**异常抛在 Settle 之前**（组装上下文、
+            // 构造结算器…）时，Settle 根本没被调用 ⇒ 一个字都不会写。
+            // 于是一笔玩家点了确认的交易在界面上**毫无痕迹**：既没有回执、也没有"没成"，
+            // 而模型下一轮还会照着"玩家确认过了"往下编。
+            //
+            // 这里补一条【未成立】并把原因写清楚，同时**明说钱的状态无法核实**——
+            // 因为我们确实不知道异常发生在动账之前还是之后。
+            try
+            {
+                string who = NpcOf(world, offerId);
+                var crashed = new LastTradeNote
+                {
+                    Day = world.LastTickedDay,
+                    OfferId = offerId,
+                    Kind = KindOf(world, offerId),
+                    Direction = DirectionOf(world, offerId),
+                    AmountUsd = AmountOf(world, offerId),
+                    NpcId = who,
+                    Status = TradeNoteStatuses.Failed,
+                    Reason = $"结算过程抛出异常（{e.GetType().Name}），没有走完。" +
+                             "这一笔是否动过钱无法确定，请核对审计文件。",
+                    LedgerEntryId = ""
+                };
+                crashed.Receipt = TradeNoteText.NotSettledLine(crashed, who);
+                crashed.Detail = "核对 audit/<WorldId>.jsonl 里有没有这笔单号：" +
+                                 "有就是真的结算过，没有就是没结算。";
+                world.LastTrade = crashed;
+                runtime.SaveQuietly(world, $"记录结算异常（{offerId}）");
+                TradeConfirmDialog.TryShowResult(world.WorldId,
+                    new SettlementOutcome(SettlementStatus.Failed, offerId, crashed.Kind, crashed.Direction,
+                        crashed.AmountUsd, who, 0, 0, 0, 0, "", "", crashed.Reason),
+                    who, logger);
+            }
+            catch (Exception nested)
+            {
+                // 连记录结论都失败：那至少别把异常吞得无声无息。
+                logger.Error("settle",
+                    "[Economy-Settle] 记录结算异常时又抛了一次（已放弃）：" + nested.GetType().Name, nested);
+            }
+
             return null;
         }
     }
@@ -753,6 +797,47 @@ public static class TradePreviewWiring
             // "还差 NPC 那一票"，那时既没有回执可补、也绝不该覆盖别的单的结论。
             if (!world.Offers.TryGetValue(offerId, out var offer)) return;
             if (!string.Equals(offer.State, TradeOfferStates.Confirmed, StringComparison.Ordinal)) return;
+
+            // ★ 证据闸：`Confirmed` 这个状态**本身不足以证明钱动过**。
+            //
+            // 为什么：`TradeEngine.Confirm` 里把 State 置成 Confirmed 的地方有两处 ——
+            // 一处是真正动账成功之后（TradeEngine.cs:247），另一处是**幂等命中**
+            // （TradeEngine.cs:230，`ExecStatus.AlreadyApplied`）。而幂等命中只看收据本，
+            // 收据是会被裁剪的（ReceiptBook 的双规则裁剪 + 账本流水本身是每 NPC 64 条的环形，
+            // 见 NpcEconomy.MaxLedgerEntries）。于是一张"很久以前结算过"的单，
+            // 它的流水可能早就被挤出环形，只剩下 State=Confirmed 与一个悬空的 LedgerEntryId。
+            //
+            // 旧写法到这里就直接按"此前结算过"重建回执了 —— 那等于**仅凭一个状态位
+            // 就向玩家宣称钱动过**。这正是本项目最忌讳的形状（模型嘴上说转了 vs 账上到底动没动）。
+            //
+            // 现在要求"钱的去向"能对上：流水 id 必须**真的还在**至少一方的流水里。
+            // 对不上就【不写"已结算"】，改写一条诚实的"无法核实"，并明确告诉玩家去哪儿查。
+            if (!MoneyActuallyMoved(world, offer, out string evidence))
+            {
+                logger.Warn("trade",
+                    $"[Economy-Confirm] 交易单 {offerId} 是 confirmed，但账上找不到对应的流水" +
+                    $"（{evidence}）——不宣称「已结算」，改写「无法核实」。");
+                string who = NpcOf(world, offerId);
+                var unverified = new LastTradeNote
+                {
+                    Day = world.LastTickedDay,
+                    OfferId = offerId,
+                    Kind = offer.Kind,
+                    Direction = offer.Direction,
+                    AmountUsd = Math.Abs(offer.Amount),
+                    NpcId = who,
+                    Status = TradeNoteStatuses.Unverified,
+                    Reason = "这张单标记为已确认，但账本里找不到对应的流水（很可能已被流水环形裁剪），" +
+                             "无法核实这笔钱到底动没动。",
+                    LedgerEntryId = offer.LedgerEntryId
+                };
+                unverified.Receipt = TradeNoteText.NotSettledLine(unverified, who);
+                unverified.Detail = "请核对 audit/<WorldId>.jsonl 里有没有这笔单号：" +
+                                    "有就是真的结算过，没有就是其实没结算。别只看这句话下结论。";
+                world.LastTrade = unverified;
+                runtime.SaveQuietly(world, $"记录无法核实（{offerId}）");
+                return;
+            }
 
             // ① 手上已经有【同一张单】的已结算结论：只补一次落盘，绝不重复记。
             if (world.LastTrade is { } note && note.Settled &&
@@ -811,6 +896,61 @@ public static class TradePreviewWiring
         bool playerFirst = string.Equals(offer.InitiatorId, EconomyTier.PlayerId, StringComparison.Ordinal);
         return playerFirst ? offer.CounterpartyId : offer.InitiatorId;
     }
+
+    /// <summary>
+    /// <b>这张单有没有"钱真的动过"的证据</b>：它的流水 id 必须真的还在某一方的流水里。
+    /// <para>
+    /// 为什么不能只看 <c>State == Confirmed</c>：那个状态在**幂等命中**时也会被置上
+    /// （<c>TradeEngine.Confirm</c> 的 <c>AlreadyApplied</c> 分支），而流水是每 NPC 64 条的
+    /// 环形（<see cref="NpcEconomy.MaxLedgerEntries"/>）、收据也会被裁剪 ——
+    /// 所以一张老单完全可能只剩状态位与一个**悬空的** <c>LedgerEntryId</c>。
+    /// 拿它去重建"已结算"回执，就是仅凭一个状态位向玩家宣称钱动过。
+    /// </para>
+    /// <para>
+    /// 判据是<b>保守</b>的：找不到流水就返回 false（宁可说"无法核实"），
+    /// 而且绝不抛异常 —— 它是纯读，任何意外都按"没有证据"处理。
+    /// </para>
+    /// </summary>
+    private static bool MoneyActuallyMoved(EconomyWorld world, TradeOffer offer, out string evidence)
+    {
+        try
+        {
+            string entryId = offer.LedgerEntryId ?? "";
+            if (entryId.Length == 0)
+            {
+                evidence = "单子上没有流水 id";
+                return false;
+            }
+
+            // 两侧都可能记着这条流水：出钱方与收钱方。任一侧还在就算有证据。
+            string npcId = NpcOf(world, offer.Id);
+            if (npcId.Length > 0 && world.Npcs.TryGetValue(npcId, out var npc) &&
+                npc.Ledger.Any(e => string.Equals(e.Id, entryId, StringComparison.Ordinal)))
+            {
+                evidence = $"流水 {Short(entryId)} 在 {npcId} 的流水里";
+                return true;
+            }
+
+            if (world.Player.Ledger.Any(e => string.Equals(e.Id, entryId, StringComparison.Ordinal)))
+            {
+                evidence = $"流水 {Short(entryId)} 在玩家的流水里";
+                return true;
+            }
+
+            evidence = $"流水 {Short(entryId)} 不在 {npcId} 或玩家的流水里（环形上限 " +
+                       $"{NpcEconomy.MaxLedgerEntries} 条，很可能已被裁剪）";
+            return false;
+        }
+        catch (Exception e)
+        {
+            evidence = "核对流水时出错：" + e.GetType().Name;
+            return false;
+        }
+    }
+
+    /// <summary>日志里用的短 id（长哈希只留前 8 位，与项目里其它地方的引用习惯一致）。</summary>
+    private static string Short(string id) =>
+        string.IsNullOrEmpty(id) ? "<无>" : (id.Length <= 8 ? id : id[..8]);
 
     private static string KindOf(EconomyWorld world, string offerId) =>
         world.Offers.TryGetValue(offerId ?? "", out var offer) ? offer.Kind : "";

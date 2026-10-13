@@ -43,7 +43,8 @@ public static class TradeNoteTextTests
         NoteTextLandsInVolatileSegmentNotStable,
         TruthChannelChangesVolatileOnlyNotStable,
         OldSaveWithoutLastTradeStillRenders,
-        ReloadedReceiptBecomesTheVolatileLine
+        ReloadedReceiptBecomesTheVolatileLine,
+        UnverifiedNoteNeverClaimsSettledNorUnsullied
     ];
 
     private const string NpcId = "crowd-5-4";
@@ -367,15 +368,7 @@ public static class TradeNoteTextTests
 
     private static ConfigLoadResult RealConfig()
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null)
-        {
-            string candidate = Path.Combine(directory.FullName, "config");
-            if (File.Exists(Path.Combine(candidate, ConfigLoader.EconomyFileName)))
-                return new ConfigLoader(candidate, Silent).Load();
-            directory = directory.Parent;
-        }
-        throw new Exception("找不到 config/ 目录");
+        return new ConfigLoader(TestConfig.Directory(), Silent).Load();
     }
 
     private static TradeContext ContextFor(EconomyWorld world, IPlayerWallet? wallet = null)
@@ -805,5 +798,49 @@ public static class TradeNoteTextTests
             try { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
             catch (IOException) { }
         }
+    }
+
+    /// <summary>
+    /// <b>「无法核实」这一档既不能说"已结算"，也不能说"钱一分没动"。</b>
+    /// <para>
+    /// 它存在的理由：<c>Confirmed</c> 状态**本身不是"钱动过"的证据** ——
+    /// <c>TradeEngine.Confirm</c> 在幂等命中时也会置它，而流水是每 NPC 64 条的环形、
+    /// 收据也会被裁剪，所以老单可能只剩一个悬空的流水 id。
+    /// 旧代码仅凭那个状态位就重建"已结算"回执，等于**替账本撒谎**。
+    /// </para>
+    /// <para>
+    /// 两个方向都要钉：说"已结算"是编造（我们不知道），说"钱一分没动"同样是编造
+    /// （它很可能很久以前真的结算过）。诚实的做法只有"查不到，请核对审计"。
+    /// </para>
+    /// </summary>
+    private static void UnverifiedNoteNeverClaimsSettledNorUnsullied()
+    {
+        var note = new LastTradeNote
+        {
+            Day = 452,
+            OfferId = "o0009",
+            Kind = TradeKinds.Sponsor,
+            Direction = TradeDirections.NpcToPlayer,
+            AmountUsd = 500,
+            NpcId = NpcId,
+            Status = TradeNoteStatuses.Unverified,
+            Reason = "这张单标记为已确认，但账本里找不到对应的流水（很可能已被流水环形裁剪），" +
+                     "无法核实这笔钱到底动没动。"
+        };
+
+        string line = TradeNoteText.NotSettledLine(note, NpcId);
+
+        TestRunner.Contains(line, "无法核实", "★必须明说无法核实");
+        TestRunner.Contains(line, note.OfferId, "要能对上单号（玩家据此去查审计）");
+        TestRunner.NotContains(line, "已结算", "★绝不能宣称已结算——那正是我们要防的编造");
+        TestRunner.NotContains(line, "钱一分没动",
+            "★也不能反过来说没动过：它很可能很久以前真的结算过，那是另一种编造");
+        TestRunner.False(note.Settled, "★Unverified 不得算作 Settled（它是「未知」，不是「成了」）");
+        TestRunner.NotEqual(TradeNoteStatuses.Settled, note.Status);
+        TestRunner.NotEqual(TradeNoteStatuses.AlreadySettled, note.Status);
+
+        // 对照：真正结算过的那一档仍然要理直气壮地说"已结算"。
+        TestRunner.Contains(TradeNoteText.ReceiptLine(Applied(), NpcId), "已结算",
+            "对照组：真结算过就必须说已结算");
     }
 }

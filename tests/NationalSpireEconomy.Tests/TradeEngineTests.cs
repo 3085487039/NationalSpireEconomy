@@ -59,21 +59,7 @@ public static class TradeEngineTests
 
     private static ConfigLoadResult RealConfig()
     {
-        if (_configDir == null)
-        {
-            var directory = new DirectoryInfo(AppContext.BaseDirectory);
-            while (directory != null)
-            {
-                string candidate = Path.Combine(directory.FullName, "config");
-                if (File.Exists(Path.Combine(candidate, ConfigLoader.EconomyFileName)))
-                {
-                    _configDir = candidate;
-                    break;
-                }
-                directory = directory.Parent;
-            }
-            if (_configDir == null) throw new Exception("找不到 config/ 目录");
-        }
+        if (_configDir == null) _configDir = TestConfig.Directory();
         return new ConfigLoader(_configDir, Silent).Load();
     }
 
@@ -558,7 +544,21 @@ public static class TradeEngineTests
             "软失败不该让 NPC 进入 resentful 档");
     }
 
-    /// <summary>确认阶段被性格拒了，同样要记仇，且交易单要落到 invalid。</summary>
+    /// <summary>
+    /// 确认阶段被性格拒了，同样要记仇，且交易单要落到 invalid。
+    /// <para>
+    /// <b>为什么要构造"Reserve 通过、Confirm 才失败"</b>：这条用例原本的写法是
+    /// "随便报一个金额，然后看它落在哪个阶段"——于是它有两条互斥路径，走哪条取决于
+    /// 配置值与性格参数的精确组合。实测走的是 **Reserve 就被拒**那一支，
+    /// 也就是说 <c>engine.Confirm</c> **从未被调用**，而用例名承诺的正是"确认阶段"。
+    /// 断言看起来还是绿的，测的却不是它声称要测的东西。
+    /// </para>
+    /// <para>
+    /// 现在改成显式制造两阶段的差异：<b>先按能过 Reserve 的金额落单</b>，
+    /// 再把 NPC 的余额改小（模拟"报价之后钱花掉了"），于是确认时重跑的校验链
+    /// 必然以性格/余额类的原因失败。这样"确认阶段记仇"这条路径一定被执行到。
+    /// </para>
+    /// </summary>
     private static void PersonalityRefusalAtConfirmAlsoRecordsGrudge()
     {
         // 用"故意挑事者"：上限台词带占位符，且 give 较低容易被 CAP 拦下。
@@ -566,23 +566,27 @@ public static class TradeEngineTests
         var ctx = Ctx(npc);
         var engine = Engine();
 
-        // 先用一个能通过 Reserve 的金额拿到待确认单，再让确认阶段失败：
-        // 小额会撞上情绪门槛，大额会撞上性格上限。这里用"小额 → 情绪不足"制造失败，
-        // 但情绪不足同样属于 PersonalityFitValidator 的拒绝码之一。
-        var reserved = engine.Submit(ctx, PayOut(1_000));
-        if (!reserved.Ok)
-        {
-            // Reserve 就被拒了：那也应当已经记过仇，直接验证这一点。
-            TestRunner.True(PersonalityFitValidator.IsPersonalityRefusal(reserved.Check.Code),
-                "Reserve 被拒的原因应是性格拒绝，实际 " + reserved.Check.Code);
-            TestRunner.Equal(10, npc.Lifetime.LastRefusedCharityDay, "Reserve 阶段也应记仇");
-            return;
-        }
+        // ① 先用一个能过 Reserve 的金额拿到待确认单。
+        //    金额取余额的 30%：高于情绪门槛（≥10%）又不至于撞性格上限。
+        long amount = Math.Clamp(npc.Balance * 3 / 10, 1_000, 50_000);
+        var reserved = engine.Submit(ctx, PayOut(amount));
+        TestRunner.True(reserved.Ok,
+            "前置：这一笔必须能过 Reserve，否则测不到确认阶段。实际拒绝码：" + reserved.Check.Code);
+        TestRunner.True(reserved.OfferId != null, "前置：应当拿到单号");
+        TestRunner.Equal(0, npc.Lifetime.LastRefusedCharityDay, "前置：Reserve 通过时不该有记仇");
+
+        // ② 把 NPC 的钱抽走 ⇒ 确认时重跑的校验链必然失败（这是刻意的 TOCTOU 场景，
+        //    也正是"确认时必须重新校验"这条契约要覆盖的情形）。
+        npc.Balance = 1;
 
         int before = npc.IntentTriggers.Count;
         var committed = engine.Confirm(ctx, reserved.OfferId!);
-        TestRunner.False(committed.Ok, "确认阶段应被重新校验拒掉");
-        TestRunner.True(npc.IntentTriggers.Count > before, "确认阶段的性格拒绝也应留下触发记录");
+
+        TestRunner.False(committed.Ok, "★确认阶段应被重新校验拒掉");
+        TestRunner.Equal(TradeOfferStates.Invalid, ctx.World.Offers[reserved.OfferId!].State,
+            "确认阶段被拒的单子应当落到 invalid");
+        TestRunner.True(npc.IntentTriggers.Count > before,
+            "★确认阶段的拒绝必须留下触发记录（这条用例真正要验的东西）");
     }
 
     /// <summary>非性格类的硬失败（例如 Kind 不在白名单）不该被误判成记仇。</summary>

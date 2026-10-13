@@ -33,18 +33,11 @@ public static class PersonalityEconomyTests
     ];
 
     private static readonly DateTimeOffset T0 = new(2026, 5, 1, 0, 0, 0, TimeSpan.Zero);
+    private static readonly DelegateEconomyLog Silent = new((_, _, _, _) => { });
 
     private static ConfigLoadResult LoadReal()
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null)
-        {
-            string candidate = Path.Combine(directory.FullName, "config");
-            if (File.Exists(Path.Combine(candidate, ConfigLoader.EconomyFileName)))
-                return new ConfigLoader(candidate, new DelegateEconomyLog((_, _, _, _) => { })).Load();
-            directory = directory.Parent;
-        }
-        throw new Exception("找不到 config/ 目录");
+        return new ConfigLoader(TestConfig.Directory(), Silent).Load();
     }
 
     private static void UnknownKindFallsBackToDefaults()

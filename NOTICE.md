@@ -12,7 +12,7 @@
 | 性质 | **二次开发（二开）作品** —— 以独立适配模组的形式为上游加入经济系统 |
 | 作者 | `Dora` |
 | 许可证 | PolyForm Noncommercial License 1.0.0（见仓库根目录 `LICENSE`） |
-| 仓库 | `https://github.com/Dora/NationalSpireEconomy` |
+| 仓库 | `https://github.com/3085487039/NationalSpireEconomy` |
 
 ## 二、上游作品（本作品依赖它运行，但不修改它）
 
@@ -73,10 +73,21 @@ PolyForm 的 Notices 条还要求传递 licensor 提供的、以 `Required Notic
 
 ## 六、本地开发环境的一个特例（与授权无关，但接手者会撞到）
 
-本项目当前的开发工作区里，构建产物目录 `deploy/` 中**含有**一份用于真机部署的
-`NationalSpireEconomy.dll`，那是**本项目自己的产物**，不是上游的 DLL。
-我们把 `deploy/` 保留在磁盘上（`build-deploy.ps1` 会用到它），但 **`.gitignore`
-不排除它** —— 如果你不想把构建产物提交进仓库，请把它一并加进 `.gitignore`。
+本项目的开发工作区里有两个**构建产物**目录，它们**都不进 Git**：
+
+| 目录 | 内容 | `.gitignore` |
+| --- | --- | --- |
+| `deploy/NationalSpireEconomy/` | 真机部署包（`build-deploy.ps1` ← 第 [3/4] 步产出） | 被 `deploy/*` 排除 |
+| `release/NationalSpireEconomy-二开-v0.1.0/`（+ `.zip`） | 面向玩家的发布包（同脚本 ← 第 [5/5] 步产出） | 被 `release/` 排除 |
+
+两者中的 `NationalSpireEconomy.dll` 都是**本项目自己的产物**，不是上游的 DLL。
+`deploy/` 与 `release/` 目录本身**保留在磁盘上**（打包脚本要用它们），
+但 `.gitignore` 里的 `deploy/*`、`release/` 规则会把里面的二进制挡在仓库之外 ——
+唯一的例外是 `!deploy/DEPLOY.md`（那份部署文档是需要入库的）。
+
+> 这两个目录**都由 `build-deploy.ps1` 重新生成**，不要手工往里拷 DLL：
+> 手工维护正是 `release/` 曾经落后一版（DLL 与 `ai_prompt_economy.json` 都停在旧版）
+> 的原因。跑一次脚本，`bin` / `deploy` / `release` 三处的 DLL 哈希必然一致。
 
 **本仓库在任何情况下都不得包含 `NationalSpire.dll`。** 上游的 DLL 属于上游作品，
 不是我们有权再分发的东西；本项目只在编译期引用它。
