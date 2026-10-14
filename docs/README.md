@@ -39,6 +39,22 @@
 
 ---
 
+## 与上游协作（2026-10-14 新增）
+
+作者明确表示**需要经济系统、且希望走 PR**，所以新增了这三份：
+
+| 文档 | 内容 | 何时看 |
+| --- | --- | --- |
+| [`ROADMAP-UPSTREAM-COLLABORATION.md`](ROADMAP-UPSTREAM-COLLABORATION.md) | **行动路线**：真机验收 → 精简材料 → 开 Issue → 分岔（拆 PR / 维持独立）。含关键事实、优先级、纪律 | **现在** |
+| [`ISSUE-DRAFT-npc-economy.md`](ISSUE-DRAFT-npc-economy.md) | **发给上游作者的 Issue 初稿**：确认方向、摊开结构现实、提议最小第一步、5 个设计问题 | 发 Issue 前 |
+| [`CHECKLIST-REAL-MACHINE-VERIFICATION.md`](CHECKLIST-REAL-MACHINE-VERIFICATION.md) | **真机验收清单**：开关命令、录制要点、三处证据、判据表、关回步骤 | 做真机时 |
+
+> **决策依据（已实测核对）**：上游**已有玩家侧经济**（`Credits`/商城/股票外汇/K线），
+> 但 **`CareerPerson` 一个金额字段都没有** ⇒ 我们要补的是**NPC 侧账户**，这是真空缺。
+> 详见路线文档 §1。
+
+---
+
 ## 工具（`tools/`）
 
 | 工具 | 用途 | 何时用 |
