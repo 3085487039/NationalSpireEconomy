@@ -95,6 +95,8 @@ using (TradeConfirmationGate.WithSettlement(true))
 | **结算前置四闸** | `SettlementWired` → 方向白名单 → 双方确认 → 单子仍 pending 且未过期；任一不满足**一个数字都不改** |
 | **S 段零数字** | 稳定段（S 段）必须逐字节稳定且不含任何数字，`ConfigLoader` 会拦；带金额的话一律进 V 段或 UI |
 | **审计只追加不修改** | `audit/<WorldId>.jsonl` 一行一条，历史行永不回填 |
+| **审计只记交易结算** | 工资 / 奖金 / 转会费（`EconomyTick`）**有意不写审计**，它们绕过校验链与确认闸。排查那几笔钱请看影子存档流水，别只看审计 —— 这条口径的完整说明见 `docs/PROJECT-SUMMARY.md` §3.2.1 |
+| **提示词新增标记必须同步剥离器** | `TradeProtocol.MarkerKeywords`；漏一个玩家就会在私信里看到机器语法（`[Deal: accept]` 曾漏过） |
 
 完整纪律清单见 `docs/HANDOFF-PHASE-4-STEP5.md` §7（铁律）与 §8（不许顺手做的事）。
 
