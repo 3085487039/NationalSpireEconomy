@@ -2,7 +2,7 @@
 
 | 发布包 | 字节 | SHA256 |
 | --- | --- | --- |
-| release/NationalSpireEconomy-二开-v0.1.0.zip | 212533 | 0D67BFD26003FA84BB4E37555B87EC349F73AE2A1D06593AF3C5AB9D0697E73A |
+| release/NationalSpireEconomy-二开-v0.1.0.zip | 212655 | 8C60EAFF6F790C5E571D822ECC5A516615A3DFC81D6A5AA9225861853492D7ED |
 
 Per-file hashes inside the pack: see its bundled SHA256SUMS.txt.
 
