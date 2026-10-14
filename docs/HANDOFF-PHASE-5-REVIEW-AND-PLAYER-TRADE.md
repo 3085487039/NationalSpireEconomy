@@ -24,7 +24,8 @@
 | 发布包 | `release/NationalSpireEconomy-二开-v0.1.0.zip`，**214357 字节**，`D87B5CFF…` |
 | 动钱开关 | `trade.settlementWired = **false**`（长期默认值，没变） |
 | 探针开关 | `injection.probeEnabled = **false**`（**本段改的**，原来是 true） |
-| git | HEAD = `d66cf09`；**未提交 11 个文件**（B 项那批）；**未推送 0**（已由维护者推过） |
+| git | HEAD = `307c489`（本段收尾提交，含 B 项 13 个文件）；**未提交 0**；**未推送**（沙箱做不到，见 §4.1） |
+| 上游 0.26.16 落点 | ✅ **已核对：10/10 签名一致**（见 §3.1），无静默失效风险 |
 
 **一句话**：模组的**账变准了、谎话变少了、测试不再骗人**；并新增了"玩家可以自己发起交易"。
 
@@ -172,15 +173,69 @@
 
 ## 3. 接下来的方向
 
-### 3.1 ⚠ 最高优先：**上游已经到 0.26.16，我们是按 0.26.11 定的落点**
+### 3.1 ✅ 已核对完毕（2026-10-14）：**上游 0.26.16 的签名与我们的落点完全一致，无静默失效风险**
 
-**这是本段调查中最有价值的发现，也是一个尚未处理的风险。**
+> **原担忧**：上游源码显示 `0.26.16`，而我们的落点是按 `0.26.11` 定的；
+> 若两版之间签名有变，注入会静默失效（本项目历史上正是栽在"挂载成功却永不命中"上）。
+>
+> **核对结论**：**10 个挂载点全部存在、签名逐字一致。不需要改任何代码。**
 
-- 上游源码（`D:\蓝色大肥鱼\NationalSpire-main`，466 文件）显示版本 **`0.26.16`**
-- 我们的 Harmony 补丁挂在 `AiService.RequestPrivateAsync`、`AiService.ProcessPrivateAsync`、`CareerEngine.MoveToNextDay`、`PrivateStreamParser.Feed`、`LeadingReasoningStream.Feed`、`PrivateTurn.set_Reply` 等方法上
-- **0.26.11 → 0.26.16 之间若有签名变动，注入会静默失效**（本项目历史上正是栽在"挂载成功却永不命中"上）
+**核对方法与证据**（两条独立证据链，互为印证）：
 
-**下一步动作**：逐方法核对上游新版的签名/命名空间，与 `docs/HANDOFF-PHASE-3-PROBE.md` §2.9 记录的真实签名表比对。**这应该在动任何新功能之前做。**
+1. **对实际部署的上游二进制做纯反射**（`tools/sig-audit/`，只读、不执行上游代码）。
+   目标 DLL 就是游戏真正加载的那一份：
+   `D:\Steam\steamapps\workshop\content\2868840\3809501471\NationalSpire.dll`
+   4,509,184 字节｜改动 10-14 13:17:40｜`SHA256 = D973D392B0014F9EBDF8A06B94FC3074D975D8408B186E6904B7342236BB9E82`
+2. **上游源码逐字复核**（`D:\蓝色大肥鱼\NationalSpire-main`），与二进制结论一致。
+
+| 我们的挂载点 | 0.26.16 实测签名 | token | 源码位置 |
+| --- | --- | --- | --- |
+| `AiService.RequestPrivateAsync`（方案 A 主挂载点） | `(AiOptions, List`1, Boolean, Action`1, CancellationToken, Action`1, String) → Task`1` | `0x060004B7` | `AiPrivateMessages.cs:135` |
+| `AiService.ProcessPrivateAsync`（身份跟踪） | `(Func`1, Action`1, String, Action`2) → Task` | `0x060004B5` | `AiPrivateMessages.cs:23` |
+| `CareerEngine.MoveToNextDay`（日期推进·首选） | `(CareerData) → Void` | `0x06000947` | `CareerEngine.cs:90` |
+| `CareerEngine.AdvanceToDay`（日期推进·后备） | `(CareerData, Int32) → Int32` | `0x06000949` | `CareerEngine.cs:120` |
+| `PrivateStreamParser.Feed` | `(String) → Void` | `0x06001562` | `PrivateMessages.cs:326+` |
+| `PrivateStreamParser.Finish` | `() → Void` | `0x06001563` | 同上 |
+| `PrivateMessagePrompts.Compose`（旧补丁·已退场） | `(CareerData, PrivateConversation, PrivateTurn) → List`1` | `0x0600153D` | — |
+| `PrivateMessagePrompts.Context`（诊断） | `(CareerData, PrivateConversation, PrivateTurn, List`1) → String` | `0x06001540` | — |
+| `LeadingReasoningStream.Feed`（并行可见流） | `(String) → Void` | `0x06000F95` | `LeadingReasoningStream.cs:12` |
+| `LeadingReasoningStream.Finish` | `() → Void` | `0x06000F96` | `LeadingReasoningStream.cs:40` |
+
+**挂载点相关的类型全部存在**：`AiService`｜`CareerEngine`｜`PrivateStreamParser`｜
+`PrivateMessagePrompts`｜`LeadingReasoningStream`｜`PrivateTurn`｜`CareerData`｜`Diagnostics`（8/8）。
+
+#### ⚠ 关键澄清：token 变了，但**这恰恰是"没变"的证据**
+
+与 `HANDOFF-PHASE-3-PROBE.md` §2.9 记录值对比，**四个 token 全部前移**：
+
+| 方法 | §2.9 记录 | 0.26.16 实测 | 位移 |
+| --- | --- | --- | --- |
+| `PrivateMessagePrompts.Compose` | `0x0600131B` | `0x0600153D` | +546 |
+| `PrivateMessagePrompts.Context` | `0x0600131E` | `0x06001540` | +546 |
+| `AiService.RequestPrivateAsync` | `0x060004AF` | `0x060004B7` | +8 |
+| `PrivateStreamParser.Feed` | `0x0600133F` | `0x06001562` | +547 |
+
+**判读**：同一类型内**全体成员整齐前移**、且**方法名与参数类型逐字未变** ——
+这是"上游**新增了**成员"的形态（元数据行号被顶开），**不是**"签名被改"。
+若真有签名变动，表现会是**找不到方法**或**参数类型对不上**，而不是整齐平移。
+
+**并且**：Harmony 是按**签名**（名 + 参数类型）匹配的，**token 只用于诊断打印**，
+所以 token 变化本身**不影响挂载**。本项目历史上栽的"挂载成功却永不命中"，
+根因是**挂在了错的方法/错的类**上（见 `HANDOFF-PHASE-3-PROBE.md` §3.2），不是 token 漂移。
+
+#### 附带查清的两件事
+
+- **"0.26.11"这个数字的来源**：上游 `ARCHITECTURE.md:3` 仍写着 "v0.26.11 的具体函数…"，
+  而 `README.md:29` 与 `NationalSpire.json:6` 都已是 **`0.26.16`**。
+  ⇒ 是**上游自己的文档陈旧**，不是我们的落点真的按旧版定的。
+  `NationalSpire-main` 源码与部署 DLL **同为 0.26.16**。
+- **`<ProcessPrivateAsync>d__39` 这个 `39` 是安全的**：`PrivateIdentityTrackPatch.cs:35,161`
+  按**前缀** `<ProcessPrivateAsync>d__` 匹配状态机，**没有硬编码序号** ⇒
+  上游哪天改了那个方法、编译器重新编号，**照样能挂上**。这是正确的写法，不必改。
+  （部署 DLL 实测：状态机为 `<ProcessPrivateAsync>d__39`。）
+
+> **留给下一次的护栏**：上游下次更新后**重跑一次** `tools/sig-audit/` 即可（只读，几秒）。
+> 判据：**任何一行变成 `[缺失类型]` 或 `[缺失方法]`** ⇒ 那个落点已经失效，必须改代码。
 
 ### 3.2 与上游的关系（**PR 这条路目前走不通**）
 
@@ -238,23 +293,27 @@
 
 ---
 
-## 4. 未提交 / 未推送的状态（**接手第一件事**）
+## 4. 提交状态（✅ 本段收尾时已办完）
 
 ```
-HEAD = d66cf09（已推送）
-未提交 11 个文件（B 项那批）：
-  CHANGELOG.md                          README.md
-  SHA256SUMS-release.txt                config/ai_prompt_economy.json
-  docs/PROJECT-SUMMARY.md               release-readme.md
-  src/Game/PrivateRequestInjectionPatch.cs
-  src/Game/TradeMarkerInterceptor.cs
-  src/Game/TradePreviewWiring.cs
-  src/Trade/TradeProtocol.cs
-  tests/NationalSpireEconomy.Tests/PlanAInjectionTests.cs
+HEAD = 307c489  feat(trade): 玩家发起交易（形态 b）—— 玩家提出、模型同意、玩家确认
+       └─ 13 个文件、+845 −28（B 项 11 个 + docs/README.md + 本文档）
+未提交 = 0（工作区干净）
+未推送 = 1 个 commit（沙箱做不到 push，见 §4.1）
 ```
 
-**建议第一件事**：把这 11 个文件提交成一个 commit（`feat(trade): 玩家发起交易（形态 b）`），
-提交信息按项目惯例写**为什么 / 怎么改 / 怎么验的 / 风险**四段。
+**收尾会话做的事**：
+
+1. ✅ 把 B 项那批**全部 13 个文件**提交成一个 commit（`307c489`），
+   提交信息按项目惯例写**为什么 / 怎么改 / 怎么验的 / 风险**四段。
+   > 注：交接文档原文写"11 个文件"，实测是 **13** —— 多出的两个是
+   > `docs/README.md`（文档索引，需同步登记本文档）与本文档自身
+   > （写文档时还没被 `git status` 看到）。不是异常。
+2. ✅ 跑了两套基线再提交：**零依赖 395/395、含游戏引用 533/533，跳过 0**。
+3. ✅ 核对了发布包哈希属实：zip 实测 `SHA256 = D87B5CFF…`（214357 字节），
+   与 `SHA256SUMS-release.txt` 逐字一致。
+4. ✅ **完成了 §3.1 的上游签名核对**（新增 `tools/sig-audit/` 作为长期护栏）。
+5. ⬜ **仍未做**：`git push`（需维护者在本机执行）与 GitHub Release 上传。
 
 ### 4.1 环境与凭据
 
@@ -282,6 +341,10 @@ dotnet run --project "$root\tests\NationalSpireEconomy.Tests\NationalSpireEconom
 
 # ③ 打包（必须是最后一次构建）—— 产出 deploy/ + release/ + zip + 哈希清单
 & "$root\build-deploy.ps1"
+
+# ④ 上游签名核对（**上游更新后必跑**，只读、几秒）—— 期望 10/10 全 [找到]、无 [缺失]
+dotnet run --project "$root\tools\sig-audit\nsesig.csproj" -c Release -- `
+  'D:\Steam\steamapps\workshop\content\2868840\3809501471\NationalSpire.dll'
 ```
 
 **三种构建都要 0 警告**（主工程零依赖 / 主工程含游戏引用 / 测试工程含游戏引用）。
@@ -307,9 +370,15 @@ dotnet run --project "$root\tests\NationalSpireEconomy.Tests\NationalSpireEconom
 
 ## 7. 如果只能记住三件事
 
-1. **上游已是 0.26.16，我们的落点是按 0.26.11 定的** —— 动新功能前先核对签名。
+1. **上游 0.26.16 的签名已核对：10/10 一致，落点安全** —— 但**上游下次更新后要重跑
+   `tools/sig-audit/`**；只要有一行变成 `[缺失方法]`，那个落点就已经失效。
 2. **改测试时：别用脚本批量替换；判据按世界查、别用进程级静态量；比较"钱动没动"用 `BalanceSnapshot`。**
 3. **把弱断言改强，比读代码更容易发现真相** —— 本段两处"真相"都是这么查出来的。
+
+> **给下一个会话的第一句话**：工作区是干净的（`307c489`），两套基线 395/533 全绿，
+> §3.1 那个"最高优先风险"**已经查清并且不存在**。
+> 所以现在是**干净的起跑线** —— 可以直接进 §3.4 挑功能（但那几项**都需要先出策划案或先与上游沟通**，
+> 见各项的"阻塞点"列），或者去做 §3.3 里甲方说"不需要"的 C 项。
 
 ---
 

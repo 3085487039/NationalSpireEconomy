@@ -135,6 +135,26 @@ src/Game     ★ 唯一依赖游戏与上游程序集的适配层
 
 ## 三、后续注意事项
 
+### 3.0 ⚠ 落点与上游版本（**2026-10-14 已核对：安全**）
+
+**上游当前版本 = `0.26.16`**（游戏实际加载的 `NationalSpire.dll` 清单里 `"version": "0.26.16"`，
+`NationalSpire-main` 源码同为 0.26.16）。
+
+**核对结论（2026-10-14）**：我们的 **10 个 Harmony 落点在上游 0.26.16 里全部存在、签名逐字一致**，
+**不需要改任何代码**。核对方式是对**部署中的上游二进制**做纯反射 + 上游源码逐字复核，
+两条证据链一致。
+
+> **⚠ 容易误读的一点**：token 确实变了（如 `RequestPrivateAsync` `0x060004AF → 0x060004B7`），
+> 但这**不是**签名变动 —— 同类型内全体成员整齐前移，是"上游**新增**了成员"的形态。
+> 而且 **Harmony 按签名（名 + 参数类型）匹配，token 只用于诊断打印**，token 变化不影响挂载。
+>
+> 另一个易误读点：上游自己的 `ARCHITECTURE.md:3` 仍写着 "v0.26.11"，
+> 那是**上游文档陈旧**，不代表我们的落点按旧版定。
+
+**护栏**：`tools/sig-audit/`（只读、几秒）。**上游每次更新后重跑**；
+判据是任何一行变成 `[缺失类型]` / `[缺失方法]`。详见
+[`HANDOFF-PHASE-5-REVIEW-AND-PLAYER-TRADE.md`](HANDOFF-PHASE-5-REVIEW-AND-PLAYER-TRADE.md) §3.1。
+
 ### 3.1 ✅ 已定案：署名保留 `Dora`
 
 **维护者 2026-10-13 拍板：继续用 `Dora` 作显示名。**
@@ -210,7 +230,7 @@ src/Game     ★ 唯一依赖游戏与上游程序集的适配层
 
 ### 3.4 工程纪律（血泪换来的，务必遵守）
 
-1. **两套基线顺序是硬约束**：零依赖先（**395/395**）、含游戏引用最后（**530/530**）。
+1. **两套基线顺序是硬约束**：零依赖先（**395/395**）、含游戏引用最后（**533/533**）。
    反了会红两条"环境敏感"用例（已知行为，不是 bug）。
 2. **打完包不要再跑零依赖基线** —— 会把 `bin/` 里的全量 DLL 覆盖成缩减版，
    随后真机加载的就是残废包。顺序永远是：跑基线 → 打包 → 部署。
@@ -235,8 +255,8 @@ src/Game     ★ 唯一依赖游戏与上游程序集的适配层
 ```powershell
 # 仓库状态
 cd <仓库根目录>
-git log --oneline                       # 应有 1 条首次提交
-git ls-files | Measure-Object -Line     # 140
+git log --oneline                       # 应有 6 条提交（HEAD 307c489）
+git ls-files | Measure-Object -Line     # 140+（随文档/工具增加而变）
 git status                              # 应为 clean
 
 # 发布包完整性（哈希以仓库根 SHA256SUMS-release.txt 为准，由 build-deploy.ps1 生成）
@@ -248,23 +268,27 @@ Get-Content release\NationalSpireEconomy-二开-v0.1.0\SHA256SUMS.txt
 # 两套基线（顺序不可反）
 dotnet run --project tests\NationalSpireEconomy.Tests\NationalSpireEconomy.Tests.csproj -c Release
 dotnet run --project tests\NationalSpireEconomy.Tests\NationalSpireEconomy.Tests.csproj -c Release -p:GameRefsEnabled=true
+
+# 上游签名核对（上游更新后必跑；只读、几秒）—— 期望 10/10 [找到]、无 [缺失]
+dotnet run --project tools\sig-audit\nsesig.csproj -c Release -- `
+  'D:\Steam\steamapps\workshop\content\2868840\3809501471\NationalSpire.dll'
 ```
 
 ### 3.6 当前交付状态（实测）
 
 | 项 | 值 |
 | --- | --- |
-| 仓库 | **140 个文件**，2 次提交（`15a6f71` 首次、`2c722bb` 标记可见性） |
-| 发布包 | `release/NationalSpireEconomy-二开-v0.1.0.zip`，**210,673 字节**，`19612A8D…` |
-| 交付包 DLL / 线上 DLL | `458752` / `892FE1D1…`（bin / deploy / release **三处一致**） |
-| 线上 `settlementWired` | `false`（交付默认值） |
-| 基线 | 零依赖 **395/395**、含游戏引用 **530/530**、三种构建 **0 警告** |
+| 仓库 | **6 次提交**，HEAD = `307c489`（阶段 5 收尾：审查修复 + 玩家发起交易） |
+| 发布包 | `release/NationalSpireEconomy-二开-v0.1.0.zip`，**214357 字节**，`D87B5CFF…`（实测与清单一致） |
+| 线上 `settlementWired` | `false`（交付默认值）；`probeEnabled` 亦为 `false` |
+| 基线 | 零依赖 **395/395**、含游戏引用 **533/533**、三种构建 **0 警告**（2026-10-14 实测，跳过 0） |
+| 上游落点 | **10/10 签名一致**（上游 0.26.16，2026-10-14 核对；护栏 `tools/sig-audit/`） |
 | 打包 | `build-deploy.ps1` 一条命令产出 deploy + release + zip + `SHA256SUMS-release.txt`；zip **可复现**（固定时间戳） |
-| 文档 | `docs/` 共 **11 份**（含索引 `docs/README.md`），覆盖阶段 0~4 全程交接与数十条坑位 |
-| 尚未完成 | `git push`（凭据不在本仓库）；GitHub Release 上传 ZIP |
+| 文档 | `docs/` 共 **12 份**（含索引 `docs/README.md`），覆盖阶段 0~5 全程交接与数十条坑位 |
+| 尚未完成 | `git push`（凭据不在本仓库，需维护者执行）；GitHub Release 上传 ZIP；真机验收 |
 
-> **DLL 哈希会随代码改动而变**：上表的 `892FE1D1…` 是**当前工作区**（含未提交修复）实测值，
-> 并非线上 DLL。线上 DLL 的哈希请以 `docs/HANDOFF-PHASE-4-STEP5.md` §1 为准。
+> **DLL 哈希与包字节会随代码改动而变**：上表是 **2026-10-14 收尾时**实测值。
+> 改代码后请重跑 `build-deploy.ps1`（它会自动重算 `SHA256SUMS-release.txt`）。
 
 ### 3.7 反馈问题时请附上的东西
 
