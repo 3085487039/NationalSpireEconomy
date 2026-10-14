@@ -81,13 +81,17 @@
 
   <!--
     默认 glob 会把 tests/ 与任何未来新增的非源码目录吸进主程序集
-    （tests/ 是独立可执行工程，混进来会报 CS8805）。
+    （tests/ 是独立可执行工程，混进来会报 CS8805；
+     tools/ 下的独立工具会混进来并报 CS0579「特性重复」——
+     2026-10-14 加 tools/sig-audit/ 时实际踩到过一次）。
     这里显式把所有源码收敛到 src/ 下，避免这类问题反复出现。
   -->
   <ItemGroup>
     <Compile Remove="tests\**\*.cs" />
+    <Compile Remove="tools\**\*.cs" />
     <Compile Remove="config\**\*.cs" />
     <None Remove="tests\**" />
+    <None Remove="tools\**" />
   </ItemGroup>
 
   <!--
