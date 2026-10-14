@@ -4,7 +4,7 @@
 它们不是"介绍材料"，而是这个项目的**主要资产**：每一份都记着哪条路走不通、为什么走不通、
 以及当时的真机证据（日志行、存档键、审计行、DLL 哈希）。
 
-> **接手请从 `HANDOFF-PHASE-4-STEP5.md` 开始。**
+> **接手请从 `HANDOFF-PHASE-5-REVIEW-AND-PLAYER-TRADE.md` 开始**（最新一段：审查修复 + 玩家发起交易）。
 > **只想先读一遍全貌，看 [`PROJECT-SUMMARY.md`](PROJECT-SUMMARY.md)。**
 >
 > 文档里出现的历史路径（例如"顶层 `HANDOFF.md`"）在仓库整理时统一改成了
@@ -24,15 +24,16 @@
 
 | # | 文档 | 内容 | 何时读 |
 | --- | --- | --- | --- |
-| 1 | [`HANDOFF-PHASE-4-STEP5.md`](HANDOFF-PHASE-4-STEP5.md) | **当前入口**：`playerToNpc` 放开、审计 `Day` 兜底、`确认` 误报收紧；甲方三项拍板；换版与真机验收步骤；代码地图；11 条坑位 | **现在** |
-| 2 | [`HANDOFF-PHASE-4-STEP4.md`](HANDOFF-PHASE-4-STEP4.md) | 第三步真机验收：**两个落盘 bug** 的根因与修复、三条证据链、`LastTrade` 落盘判据、9 条坑位 | 需要背景时 |
-| 3 | [`HANDOFF-PHASE-4-STEP3.md`](HANDOFF-PHASE-4-STEP3.md) | 第三步实施：UI 与**账本真相通道**（回执 / 未成立 / 审计回读）、22 条坑位 | 同上 |
-| 4 | [`HANDOFF-PHASE-4-STEP2.md`](HANDOFF-PHASE-4-STEP2.md) | 第二步：**真正动钱 + 审计落盘**，12 轮真机记录、五次换版全哈希 | 同上 |
-| 5 | [`PLAN-PHASE-4-STEP2.md`](PLAN-PHASE-4-STEP2.md) | 第二步方案全文（含 §8 甲方四项决策） | 设计意图 |
-| 6 | [`HANDOFF-PHASE-4-TRADE.md`](HANDOFF-PHASE-4-TRADE.md) | 第一步：只读预览 + 双人确认，加三轮真机反馈 | 设计意图 |
-| 7 | [`HANDOFF-PHASE-3-PROBE.md`](HANDOFF-PHASE-3-PROBE.md) | 阶段 3：落点根因、收据裁剪、按需载入三大缺陷 | 排查注入问题时 |
-| 8 | [`HANDOFF.md`](HANDOFF.md) | 第 1–6 步的设计与踩坑记录（**进度部分已过期**，保留作历史） | 需要考古时 |
-| 9 | [`HANDOFF-PHASE-0-2.md`](HANDOFF-PHASE-0-2.md) | 阶段 0~2 完整记录（工程纪律、日志通道、注入点后移的来龙去脉） | 需要考古时 |
+| **1** | [`HANDOFF-PHASE-5-REVIEW-AND-PLAYER-TRADE.md`](HANDOFF-PHASE-5-REVIEW-AND-PLAYER-TRADE.md) | **当前入口**（阶段 5，2026-10-13/14）：P0~P3 五轮审查修的 15 个问题、`[Deal: accept]` 泄漏、**玩家发起交易（形态 b）**；**教训**（弱断言改强查出真相、进程级静态量骗人、批量替换咬人）；**方向**（⚠ 上游已到 0.26.16；PR 为何走不通；物品/雇佣/赞助未做） | **现在** |
+| 2 | [`HANDOFF-PHASE-4-STEP5.md`](HANDOFF-PHASE-4-STEP5.md) | 上一段入口：`playerToNpc` 放开、审计 `Day` 兜底、`确认` 误报收紧；甲方三项拍板；换版与真机验收步骤；**§6.6 交易标记的完整出口清单**（改标记必读）；11 条坑位 | 需要背景时 |
+| 3 | [`HANDOFF-PHASE-4-STEP4.md`](HANDOFF-PHASE-4-STEP4.md) | 第三步真机验收：**两个落盘 bug** 的根因与修复、三条证据链、`LastTrade` 落盘判据、9 条坑位 | 需要背景时 |
+| 4 | [`HANDOFF-PHASE-4-STEP3.md`](HANDOFF-PHASE-4-STEP3.md) | 第三步实施：UI 与**账本真相通道**（回执 / 未成立 / 审计回读）、22 条坑位 | 同上 |
+| 5 | [`HANDOFF-PHASE-4-STEP2.md`](HANDOFF-PHASE-4-STEP2.md) | 第二步：**真正动钱 + 审计落盘**，12 轮真机记录、五次换版全哈希 | 同上 |
+| 6 | [`PLAN-PHASE-4-STEP2.md`](PLAN-PHASE-4-STEP2.md) | 第二步方案全文（含 §8 甲方四项决策） | 设计意图 |
+| 7 | [`HANDOFF-PHASE-4-TRADE.md`](HANDOFF-PHASE-4-TRADE.md) | 第一步：只读预览 + 双人确认，加三轮真机反馈 | 设计意图 |
+| 8 | [`HANDOFF-PHASE-3-PROBE.md`](HANDOFF-PHASE-3-PROBE.md) | 阶段 3：落点根因、收据裁剪、按需载入三大缺陷（**§2.9 有真实方法签名表 —— 核对上游版本时用**） | 排查注入问题时 |
+| 9 | [`HANDOFF.md`](HANDOFF.md) | 第 1–6 步的设计与踩坑记录（**进度部分已过期**，保留作历史） | 需要考古时 |
+| 10 | [`HANDOFF-PHASE-0-2.md`](HANDOFF-PHASE-0-2.md) | 阶段 0~2 完整记录（工程纪律、日志通道、注入点后移的来龙去脉） | 需要考古时 |
 
 部署、回滚与真机判据表在 [`../deploy/DEPLOY.md`](../deploy/DEPLOY.md)。
 

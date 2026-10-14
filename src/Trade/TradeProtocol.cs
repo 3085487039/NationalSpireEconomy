@@ -306,16 +306,62 @@ public sealed class TradeProtocol
             return;
         }
 
-        // ★ 只剥不解析的标记：`[Deal: accept]`。
+        // ★ `[Deal: …]`：**只剥不解析成交易意图**。
         //
-        // 提示词要求模型"同意对方提出的交易时再写一行 [Deal: accept]"，
-        // 但目前**没有代码消费它**（NPC 那一票来自 [Trade: …] 本身）。
+        // 提示词要求模型"同意玩家提出的交易时再写一行 [Deal: accept]"。
         // 它必须被剥掉（否则玩家在私信里看得到机器语法，与 [Trade:] 泄漏是同一个形状），
         // 但不能当交易意图去解析 —— 它没有 Kind/Amount，硬解会产出一条假的 PARSE_ERROR，
         // 在日志里刷出一堆"标记解析失败"，把真正的故障淹掉。
-        if (keyword.Equals(StripOnlyKeyword, StringComparison.OrdinalIgnoreCase)) return;
+        //
+        // 它的**语义**由 DealAccepted 单独暴露给接线层（阶段 4 B 项：玩家发起交易，
+        // 等模型回 accept 才算 NPC 同意）。
+        if (keyword.Equals(StripOnlyKeyword, StringComparison.OrdinalIgnoreCase))
+        {
+            if (LooksLikeAccept(group)) DealAccepted = true;
+            return;
+        }
 
         _collected.Add(Parse(group, keyword));
+    }
+
+    /// <summary>
+    /// 模型是否在本轮回复里写了 <c>[Deal: accept]</c>（= 它同意玩家提出的交易）。
+    /// <para>
+    /// 阶段 4 B 项（形态 b）的判据：玩家先在私信里打 <c>[Trade: …]</c> 表达意愿，
+    /// 落单时**不投 NPC 那一票**；等模型明确回 <c>[Deal: accept]</c> 才把它投上。
+    /// 这样 NPC 才有"拒绝玩家提议"的能力 —— 否则玩家一开口 NPC 就必须答应
+    /// （那是形态 a 的语义）。
+    /// </para>
+    /// <para>
+    /// 它是<b>累积</b>的（一旦为真就保持为真），因为流式分片可能把不同的标记送到不同的
+    /// <c>Feed</c> 调用里；调用方在每轮开头用 <see cref="ResetDealAccepted"/> 清一次。
+    /// </para>
+    /// </summary>
+    public bool DealAccepted { get; private set; }
+
+    /// <summary>清掉"本轮见过 accept"的标记（每轮私信开头调一次）。</summary>
+    public void ResetDealAccepted() => DealAccepted = false;
+
+    /// <summary>
+    /// 这个 <c>[Deal: …]</c> 组是不是"同意"（<c>accept</c> / <c>确认</c> / <c>同意</c>）。
+    /// <para>
+    /// 只顾认同意：<c>[Deal: decline]</c> 之类不在这里处理 —— 拒绝由模型用自然语言表达，
+    /// 我们不为它单独开一条状态（多一个状态就多一处要说谎的地方）。
+    /// </para>
+    /// </summary>
+    private static bool LooksLikeAccept(string group)
+    {
+        int head = FirstColon(group, 1, group.Length);
+        if (head < 0) return false;
+
+        string value = group[(head + 1)..].Trim();
+        if (value.EndsWith(']')) value = value[..^1];
+        value = value.Trim();
+
+        return value.Equals("accept", StringComparison.OrdinalIgnoreCase)
+               || value.Equals("同意", StringComparison.Ordinal)
+               || value.Equals("接受", StringComparison.Ordinal)
+               || value.Equals("确认", StringComparison.Ordinal);
     }
 
     /// <summary>

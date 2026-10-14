@@ -68,6 +68,12 @@ public static class TradeMarkerInterceptor
 
         /// <summary>本实例累计识别出的意图数，仅用于日志。</summary>
         public int IntentCount;
+
+        /// <summary>
+        /// 本轮是否已经处理过 <c>[Deal: accept]</c>（避免同一条回复里多个分片各触发一次）。
+        /// 在 <see cref="RewriteFinish"/> 里随 <c>ResetDealAccepted</c> 一起复位。
+        /// </summary>
+        public bool DealAcceptedHandled;
     }
 
     private static readonly object Gate = new();
@@ -131,6 +137,17 @@ public static class TradeMarkerInterceptor
             // 分片停在半个标记上时，clean 里是"标记之前"的那段文字，必须照常显示。
             rewritten = state.Clean.ToString();
             state.Visible.Append(rewritten);
+
+            // ★ 阶段 4 B 项（形态 b）：模型可能这一片里只有 [Deal: accept]（它不是交易意图，
+            //   所以不会出现在 intents 里）。它必须单独看一眼 —— 否则"模型同意玩家提议"
+            //   这件事就永远收不到（悬空协议）。
+            //   判据是协议层的 DealAccepted，与显示剥离用的是同一套扫描。
+            if (state.Protocol.DealAccepted && !state.DealAcceptedHandled)
+            {
+                state.DealAcceptedHandled = true;
+                Log?.Info("trade", "[Economy-PlayerTrade] 模型回复里出现 [Deal: accept]");
+                TradePreviewWiring.HandleDealAccepted(Log);
+            }
             return true;
         }
 
@@ -143,6 +160,15 @@ public static class TradeMarkerInterceptor
             //   ParseFailed 的意图会被 HandleModelIntent 自己跳过。
             TradePreviewWiring.HandleModelIntent(intent, Log);
         }
+
+        // 同一片里既可能有 [Trade: …] 也可能有 [Deal: accept]，所以这里也要看一眼。
+        if (state.Protocol.DealAccepted && !state.DealAcceptedHandled)
+        {
+            state.DealAcceptedHandled = true;
+            Log?.Info("trade", "[Economy-PlayerTrade] 模型回复里出现 [Deal: accept]");
+            TradePreviewWiring.HandleDealAccepted(Log);
+        }
+
         rewritten = state.Clean.ToString();
         state.Visible.Append(rewritten);
         return true;
@@ -309,6 +335,11 @@ public static class TradeMarkerInterceptor
         }
 
         ReportTransferClaim(state);
+
+        // 一轮结束：把 [Deal: accept] 的两个标记都复位，下一轮从干净状态开始。
+        // （协议里的 DealAccepted 是累积的，不复位会让下一轮"白捡"一个同意。）
+        state.DealAcceptedHandled = false;
+        state.Protocol.ResetDealAccepted();
         return true;
     }
 

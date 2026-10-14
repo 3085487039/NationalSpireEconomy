@@ -354,6 +354,198 @@ public static class TradePreviewWiring
     }
 
     /// <summary>
+    /// <b>阶段 4 B 项（形态 b）：玩家发起交易</b> —— 玩家在私信里打 <c>[Trade: …]</c>。
+    /// <para>
+    /// 与 <see cref="HandleModelIntent"/> 的<b>唯一差别</b>：落单之后
+    /// <b>不投 NPC 那一票</b>。NPC 的票要等模型在回复里写 <c>[Deal: accept]</c>
+    /// （见 <see cref="HandleDealAccepted"/>），这样 NPC 才有"拒绝玩家的提议"的能力 ——
+    /// 否则玩家一开口 NPC 就必须答应。
+    /// </para>
+    /// <para>
+    /// <b>为什么它不违反回声保护</b>：回声保护拦的是"模型复读玩家打的标记、被误当成 NPC 提议"。
+    /// 玩家自己打的标记本来就**应该**被当成玩家提议，走的是这条路，与模型那条互不干扰。
+    /// </para>
+    /// <para>仍然不动钱：落单只是 Reserve。</para>
+    /// </summary>
+    /// <returns>本次是否落下了一张单（供日志与测试判断）。</returns>
+    public static bool HandlePlayerIntent(string rawText, IEconomyLog? log = null)
+    {
+        if (string.IsNullOrWhiteSpace(rawText)) return false;
+        try
+        {
+            var runtime = EconomyModEntry.Runtime;
+            if (runtime == null) return false;
+
+            // 只认完整、可解析的标记；残缺/畸形的原样留给原版显示（绝不猜）。
+            var intents = TradeProtocol.ParseAll(rawText);
+            if (intents.Count == 0) return false;
+
+            var identity = PrivateIdentitySlot.Peek();
+            if (identity == null)
+            {
+                (log ?? runtime.Log).Warn("trade",
+                    "[Economy-PlayerTrade] 玩家打了交易标记，但此刻没有可用身份，已忽略。");
+                return false;
+            }
+
+            var world = ResolveWorld(runtime, identity);
+            if (world == null) return false;
+
+            var logger = log ?? runtime.Log;
+            bool any = false;
+
+            foreach (var intent in intents)
+            {
+                if (intent.ParseFailed)
+                {
+                    logger.Warn("trade",
+                        $"[Economy-PlayerTrade] 玩家标记解析失败：{intent.ParseError}｜原文 {intent.RawText}");
+                    continue;
+                }
+
+                // 意图补全：与模型那条完全同一套（标记显式 > 配置 kindDirections，都不行就拒绝）。
+                var (completed, reason) = TradeIntentCompleter.Complete(intent, identity.PersonId,
+                    EconomyTier.PlayerId, runtime.Config.Economy.Trade);
+                if (completed == null)
+                {
+                    logger.Info("trade",
+                        $"[Economy-PlayerTrade] 玩家标记无法补全：{reason}｜{intent.Kind} " +
+                        $"{MoneyUnits.Format(intent.AmountUsd)}");
+                    RecordNote(world, TradeNoteStatuses.Incomplete, intent.Kind, intent.Direction,
+                        intent.AmountUsd, reason ?? "交易标记的关键信息不全", npcId: identity.PersonId);
+                    runtime.SaveQuietly(world, "记录未成立（玩家标记补全失败）");
+                    continue;
+                }
+
+                var ctx = BuildContext(runtime, world, identity, completed);
+                if (ctx == null) continue;
+
+                var engine = EngineOf(runtime);
+                var reserve = engine.Submit(ctx, completed);
+                if (!reserve.Ok || reserve.OfferId == null)
+                {
+                    string code = reserve.SoftDeclined ? "软失败" : reserve.Check.Code;
+                    logger.Info("trade",
+                        $"[Economy-PlayerTrade] 玩家标记未落单（{code}）：{reserve.Check.Message}｜" +
+                        $"{completed.Kind} {MoneyUnits.Format(completed.AmountUsd)}");
+                    RecordNote(world, TradeNoteStatuses.Refused, completed.Kind, completed.Direction,
+                        completed.AmountUsd, $"{code}：{reserve.Check.Message}", npcId: identity.PersonId);
+                    runtime.SaveQuietly(world, "记录未成立（玩家标记未落单）");
+                    continue;
+                }
+
+                var offer = world.Offers[reserve.OfferId];
+                var preview = TradePreviewBuilder.ForOffer(ctx, offer, engine);
+
+                // ★ 这里是形态 b 的全部要害：**不投 NPC 那一票**。
+                //   单子停在 pending，等 HandleDealAccepted 收到模型的 accept 才补上。
+                lock (GateLock) PendingByWorld[world.WorldId] = preview;
+                LastPreview = preview;
+                LastConfirmation = TradeConfirmationGate.Status(ctx, offer.Id);
+                any = true;
+
+                runtime.SaveQuietly(world, $"玩家落单 {offer.Id}");
+                logger.Info("trade",
+                    $"[Economy-PlayerTrade] 玩家提出的交易单 {offer.Id}｜{preview.Title}｜" +
+                    $"{MoneyUnits.Format(preview.AmountUsd)}｜校验 {preview.CheckSummary}｜" +
+                    "★只读预览、未动任何余额；NPC 那一票要等模型回 [Deal: accept]");
+            }
+
+            return any;
+        }
+        catch (Exception e)
+        {
+            try
+            {
+                (log ?? EconomyModEntry.Runtime?.Log)?.Error("trade",
+                    "[Economy-PlayerTrade] 处理玩家交易标记时抛异常（已忽略）：" +
+                    e.GetType().Name + "：" + e.Message, e);
+            }
+            catch (Exception)
+            {
+                // 日志都失败就只能放弃。
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// <b>模型回了 <c>[Deal: accept]</c></b>：把 NPC 那一票投到本世界最近一张待确认单上。
+    /// <para>
+    /// <b>只认最近一张</b>：私信里玩家通常一次只谈一笔；多张 pending 时按单号猜是错的
+    /// （猜错就等于替 NPC 同意了另一笔）。宁可拒绝也不猜，日志里写清楚。
+    /// </para>
+    /// <para>仍然不动钱 —— 投完票若双方到齐，走的是既有的结算四闸。</para>
+    /// </summary>
+    /// <returns>本次是否投上了 NPC 那一票。</returns>
+    public static bool HandleDealAccepted(IEconomyLog? log = null)
+    {
+        try
+        {
+            var runtime = EconomyModEntry.Runtime;
+            if (runtime == null) return false;
+
+            var identity = PrivateIdentitySlot.Peek();
+            if (identity == null) return false;
+
+            var world = ResolveWorld(runtime, identity);
+            if (world == null) return false;
+
+            var logger = log ?? runtime.Log;
+
+            // 最近一张由玩家发起、且仍待确认的单。
+            // 判据刻意窄：只认 pending，且**发起方是玩家**（模型自己提议的那条
+            // 在 HandleModelIntent 里就已经投过 NPC 票了，不需要 accept）。
+            TradeOffer? target = null;
+            foreach (var offer in world.Offers.Values)
+            {
+                if (!TradeOfferStates.IsPending(offer.State)) continue;
+                if (!string.Equals(offer.Direction, TradeDirections.PlayerToNpc, StringComparison.Ordinal))
+                    continue;
+                if (target == null || offer.CreatedDay >= target.CreatedDay)
+                    target = offer;
+            }
+
+            if (target == null)
+            {
+                logger.Info("trade",
+                    "[Economy-PlayerTrade] 模型回了 [Deal: accept]，但本世界没有「玩家发起且仍待确认」的单，已忽略。");
+                return false;
+            }
+
+            var ctx = BuildContext(runtime, world, identity, intent: null);
+            if (ctx == null) return false;
+
+            var status = TradeConfirmationGate.Confirm(ctx, target.Id, TradeConfirmationSide.Npc,
+                "模型回了 [Deal: accept]");
+            LastConfirmation = status;
+            logger.Info("trade",
+                $"[Economy-PlayerTrade] 模型同意玩家提出的交易单 {target.Id}｜{status.DetailText}");
+
+            if (status.ReadyToSettle)
+            {
+                logger.Info("trade", SettlingLine(target.Id));
+                TrySettle(runtime, world, target.Id, "模型 accept", logger);
+            }
+
+            return status.NpcAccepted;
+        }
+        catch (Exception e)
+        {
+            try
+            {
+                (log ?? EconomyModEntry.Runtime?.Log)?.Error("trade",
+                    "[Economy-PlayerTrade] 处理 [Deal: accept] 时抛异常（已忽略）：" +
+                    e.GetType().Name + "：" + e.Message, e);
+            }
+            catch (Exception)
+            {
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
     /// <b>玩家侧确认指令</b>：从玩家发出去的消息里找「确认 &lt;单号&gt;」/「拒绝 &lt;单号&gt;」。
     /// 纯文本匹配、不依赖模型；命中就投玩家那一票（<b>不动钱</b>）。
     /// </summary>

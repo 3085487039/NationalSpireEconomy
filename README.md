@@ -43,10 +43,13 @@
   **它们真的会改变 NPC 余额**，且**有意绕过**八条校验器与确认闸（那是程序化的赛季结算，
   不是模型提议的交易）、**也不写审计**。要算这些钱的账，请看影子存档里的流水与累计统计，
   而不是 `audit/<WorldId>.jsonl`（审计只记交易结算）。
-- **玩家发起交易尚未支持**：目前只能由 NPC（模型）提出、玩家确认。
-  玩家自己在私信里打 `[Trade: …]` **不会落单** —— 那是刻意的回声保护
-  （否则模型复读玩家的字就等于"替 NPC 同意"）。
-  注意这与"玩家可以回 `确认 <单号>`"是两件事：后者一直可用。
+- **玩家发起交易已支持（形态 b）**：玩家可以在私信里自己打 `[Trade: …]` 提出交易，
+  但它**不会自动成立** —— 要等 NPC（模型）回一行 `[Deal: accept]` 表示同意，
+  **再由玩家自己确认**（`确认 <单号>` 或弹窗）才会结算。
+  也就是说一笔玩家发起的交易要经过三段：**你提出 → NPC 同意 → 你确认**。
+  NPC 完全可以不同意（它会照自己的性格说理由）。
+  > 注意：**回声保护仍然有效** —— 模型若只是复读你打的那行标记，不会被当成它同意了。
+  > 玩家发起的单和 NPC 自己提议的单是两条不同的路径，互不干扰。
 - **玩家侧即时回执看不到**：注入进 Prompt（V 段）**不等于**显示在私信界面上；
   结果弹窗在私信模态打开时会被让位，此时回执只写进 V 段与日志。
 - **影子余额与原版 `Credits` 会分叉**：玩家的钱由本模组管辖（从原版一次性只读导入），
@@ -209,7 +212,8 @@ NationalSpireEconomy/
 
 | 文档 | 内容 |
 | --- | --- |
-| [`docs/HANDOFF-PHASE-4-STEP5.md`](docs/HANDOFF-PHASE-4-STEP5.md) | **当前入口**：双向结算、三项拍板、换版与验收步骤 |
+| [`docs/HANDOFF-PHASE-5-REVIEW-AND-PLAYER-TRADE.md`](docs/HANDOFF-PHASE-5-REVIEW-AND-PLAYER-TRADE.md) | **当前入口**：五轮审查修的 15 个问题、`[Deal: accept]` 泄漏、玩家发起交易（形态 b）、教训与方向 |
+| [`docs/HANDOFF-PHASE-4-STEP5.md`](docs/HANDOFF-PHASE-4-STEP5.md) | 双向结算、三项拍板、换版与验收步骤、**交易标记的完整出口清单** |
 | [`docs/HANDOFF-PHASE-4-STEP4.md`](docs/HANDOFF-PHASE-4-STEP4.md) | 第三步真机验收：两个落盘 bug、三条证据链、9 条坑位 |
 | [`docs/HANDOFF-PHASE-4-STEP3.md`](docs/HANDOFF-PHASE-4-STEP3.md) | 第三步实施：UI 与账本真相通道 |
 | [`docs/HANDOFF-PHASE-4-STEP2.md`](docs/HANDOFF-PHASE-4-STEP2.md) | 真正动钱 + 审计落盘的 12 轮真机记录 |

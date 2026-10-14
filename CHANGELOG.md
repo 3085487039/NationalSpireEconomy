@@ -11,8 +11,49 @@
 
 ## [未发布]
 
-对 P0（交付正确性）与 P1/P2/P3（动钱正确性、真相通道、测试质量）几轮审查发现的问题做的修复。
-**基线：零依赖 395/395、含游戏引用 530/530、三种构建 0 警告。**
+对 P0（交付正确性）与 P1/P2/P3（动钱正确性、真相通道、测试质量）几轮审查发现的问题做的修复，
+外加**阶段 4 B 项：玩家发起交易（形态 b）**。
+**基线：零依赖 395/395、含游戏引用 533/533、三种构建 0 警告。**
+
+### 新增（B 项：玩家发起交易 —— 形态 b「NPC 有权拒绝」）
+
+维护者 2026-10-14 拍板做 B 项的 **(b)** 形态：**玩家提出 → 等模型回 `[Deal: accept]` 才算 NPC 同意**。
+（另一种 (a)「玩家发标记就自动落单、NPC 那一票自动投」被否掉 —— 那等于玩家一开口 NPC 就必须答应。）
+
+- **玩家可以在私信里自己打 `[Trade: …]` 了**（此前被回声保护按下去，只当正文）。
+  新增 `TradePreviewWiring.HandlePlayerIntent`：走**与模型那条完全同一套**的
+  意图补全与八条校验链，Reserve 落 pending 单（**不动钱**）。
+- **关键差异：落单时【不投 NPC 那一票】。** NPC 的票要等模型明确回 `[Deal: accept]`
+  （新增 `TradePreviewWiring.HandleDealAccepted`）。
+- **完整语义**：玩家提出 → NPC 同意 → **玩家自己再确认** → 才结算（四道闸一道不少）。
+  「模型说了 accept」**不等于**钱走了 —— `DealAcceptCastsNpcVoteAndSettles` 把这三段
+  逐段钉住（accept 之后单子仍是 pending、两边余额一字不动）。
+- **`[Deal: accept]` 从"只剥不解析"改为"剥 + 解析"**：
+  `TradeProtocol.DealAccepted` 暴露给接线层，`StripOnlyKeywords` 仍然负责"不当交易意图解析"
+  （它没有 Kind/Amount，硬解只会刷假的 PARSE_ERROR）。
+  每轮结束在 `RewriteFinish` 里复位，避免下一轮"白捡"一个同意。
+- **只认最近一张"玩家发起且待确认"的单**；没有就忽略并记日志 —— 宁可拒绝也不猜
+  （猜错就等于替 NPC 同意了另一笔）。
+- **提示词加回 `[Deal: accept]`（D1 反转）**，但这次说清了**谁先提**：
+  「如果玩家先在消息里提出了交易（你会看到一行 `[Trade: …]` 标记），那笔交易要由你来表态：
+  同意就写一行 `[Deal: accept]`，不同意就不要写它、并照你的性格把理由说出来」。
+  S 段仍**零数字**（已复核）。
+
+### 测试 +3（530 → 533）
+
+- `PlayerInitiatedTradeWaitsForModelConsent`：玩家标记落单、**NPC 票未投**、单子 pending、钱一分不动。
+- `DealAcceptCastsNpcVoteAndSettles`：accept 只投 NPC 票（还差玩家那一票）→
+  玩家确认后才真的结算，两个余额都变。
+- `DealAcceptWithoutPlayerOfferIsIgnored`：没有可认领的单时 accept 必须被忽略
+  （含"模型自己提议的单不该被 accept 再认领"的对照）。
+
+### 修复（本轮顺带查出的两个测试陷阱，已写进代码注释）
+
+- **`LastSettlement` / `LastPreview` 是进程级静态量**，`Clear(worldId)` **不清它们** ——
+  测试里读到的是**上一个用例**留下的陈旧值（实测读到"已结算（私信指令）"而单子其实还是 pending）。
+  测试请按世界查（`PendingFor` / `LastNoteOf` / `TradeConfirmationGate.Status`）。
+- **`MoneySnapshot` 含 `offers=N`**：落单/结算本来就会增加单数，用它比较永不相等。
+  比较"钱有没有动"要用 `BalanceSnapshot`（余额 + 流水）。
 
 ### 变更（P3：出厂不再背排障工具的代价）
 

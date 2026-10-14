@@ -436,6 +436,13 @@ public static class PrivateRequestInjectionPatch
         TradePreviewWiring.RememberPlayerTexts(identity.WorldId, playerTexts);
         TradePreviewWiring.HandlePlayerCommands(identity, playerTexts, _log);
 
+        // ★ 阶段 4 B 项（形态 b）：玩家自己打 [Trade: …] 表达意愿。
+        //   落单但**不投 NPC 那一票** —— 等模型回 [Deal: accept] 才补上。
+        //   注意顺序：必须放在 HandlePlayerCommands 之后、注入之前。
+        //   它只 Reserve（不动钱），所以放在哪一步都不会影响本轮注入的内容。
+        foreach (string text in playerTexts)
+            TradePreviewWiring.HandlePlayerIntent(text, _log);
+
         var input = runtime.BuildInputFor(world, person, identity.Day, identity.Season, identity.Data);
         if (input == null)
             return Skip(context, identityText, before, "组装注入输入失败（档位/性格/配置缺失）");

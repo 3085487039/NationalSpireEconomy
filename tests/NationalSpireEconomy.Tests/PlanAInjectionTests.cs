@@ -45,6 +45,9 @@ public static class PlanAInjectionTests
         PlayerConfirmCommandIsHonouredWithoutMovingMoney,
         PlayerConfirmCommandSurvivesVanillaWrapper,
         PlayerConfirmSettlesWhenSwitchIsOn,
+        PlayerInitiatedTradeWaitsForModelConsent,
+        DealAcceptCastsNpcVoteAndSettles,
+        DealAcceptWithoutPlayerOfferIsIgnored,
         RejectedIntentBecomesVisibleNotSettledNote,
         EchoOfPlayerTextNeverBecomesAnOffer,
         SettledReceiptReachesTheVolatileSegment,
@@ -1874,6 +1877,168 @@ public static class PlanAInjectionTests
     {
         // 收敛到共享实现（原先 19 个文件各抄一份）。
         return TestConfig.Directory();
+    }
+
+    // ── 阶段 4 B 项（形态 b）：玩家发起交易，等模型回 [Deal: accept] ──────────
+
+    /// <summary>
+    /// <b>玩家自己打 <c>[Trade: …]</c> 会落单，但 NPC 那一票【先不投】。</b>
+    /// <para>
+    /// 这是形态 b 的全部要害：NPC 必须保留"拒绝玩家提议"的能力。
+    /// 若这里就把 NPC 票投上，玩家一开口 NPC 就必须答应 —— 那是形态 a 的语义。
+    /// </para>
+    /// <para>同时钉住"落单仍然不动钱"（Reserve 的既有契约）。</para>
+    /// </summary>
+    private static void PlayerInitiatedTradeWaitsForModelConsent()
+    {
+        Setup();
+        var runtime = EconomyModEntry.Runtime!;
+        string worldId = "player-initiated";
+        var world = runtime.WorldFor(Data(worldId))!;
+        PrivateIdentitySlot.Set(worldId, NpcId, NpcId, 12, 1, "test", Data(worldId));
+        TradePreviewWiring.Clear(worldId);
+        TradePreviewWiring.ResetNote(world);
+
+        long npcBefore = world.Npcs[NpcId].Balance;
+
+        // 玩家→NPC 是由【玩家】出钱，所以先给影子钱包充值：
+        // Data() 没设原版 Credits，导入后影子余额是 $0，任何一笔玩家出钱都会被
+        // BalanceValidator 以 PLAYER_INSUFFICIENT 正确地拒掉（那不是我们要测的东西）。
+        var credit = new ShadowPlayerWallet(world).Apply(50_000,
+            new LedgerEntry { Day = 12, Season = 1, Kind = "测试入账", Title = "测试：给玩家垫钱" });
+        TestRunner.Equal(MoneyMoveStatus.Applied, credit.Status, "前置：应能给影子钱包充值");
+        // ⚠ 只能用 BalanceSnapshot（余额 + 流水），不能用 MoneySnapshot ——
+        //   后者把 offers=N 也算进去，而落单本来就会多一张单，用它比较永不相等。
+        string balancesBefore = TradePreviewTests.BalanceSnapshot(Ctx(world));
+
+        long amount = 3_000;
+        string marker = $"[Trade: 雇佣, Amount: {amount}, Direction: playerToNpc]";
+        bool ok = TradePreviewWiring.HandlePlayerIntent($"我雇你一小时，{marker}", Silent);
+
+        TestRunner.True(ok, "★玩家打出的完整标记必须落单");
+
+        var preview = TradePreviewWiring.PendingFor(worldId);
+        TestRunner.True(preview != null, "应当留下待确认预览");
+        TestRunner.Equal(amount, preview!.AmountUsd, "金额应当就是标记里那个");
+        TestRunner.Equal(TradeDirections.PlayerToNpc, preview.Direction, "方向应是玩家→NPC");
+
+        // ★ 核心：NPC 票【未投】，玩家票也未投 ⇒ 还不就绪。
+        var status = TradePreviewWiring.LastConfirmation;
+        TestRunner.True(status != null, "应当留下确认状态");
+        TestRunner.False(status!.NpcAccepted,
+            "★NPC 那一票绝不能自动投上 —— 要等模型回 [Deal: accept]（这是形态 b 的全部意义）");
+        TestRunner.False(status.ReadyToSettle, "两票都没到齐，不该就绪");
+        TestRunner.Equal(TradeOfferStates.Pending, world.Offers[preview.OfferId].State,
+            "单子应停在 pending");
+
+        TestRunner.Equal(balancesBefore, TradePreviewTests.BalanceSnapshot(Ctx(world)),
+            "★落单绝不能动钱（Reserve 的契约）");
+        TestRunner.Equal(npcBefore, world.Npcs[NpcId].Balance, "NPC 余额一字不动");
+
+        TradePreviewWiring.Clear(worldId);
+    }
+
+    /// <summary>
+    /// <b>模型回 <c>[Deal: accept]</c> ⇒ 投上 NPC 那一票；开关打开时结算真的发生。</b>
+    /// </summary>
+    private static void DealAcceptCastsNpcVoteAndSettles()
+    {
+        Setup();
+        var runtime = EconomyModEntry.Runtime!;
+        string worldId = "deal-accept";
+        var world = runtime.WorldFor(Data(worldId))!;
+        PrivateIdentitySlot.Set(worldId, NpcId, NpcId, 12, 1, "test", Data(worldId));
+        TradePreviewWiring.Clear(worldId);
+        TradePreviewWiring.ResetNote(world);
+
+        long playerBefore = world.Player.Balance;
+        long npcBefore = world.Npcs[NpcId].Balance;
+
+        // 玩家出钱 ⇒ 先给影子钱包充值（Data() 的 Credits 是 0，导入后余额为 $0）。
+        var credit = new ShadowPlayerWallet(world).Apply(50_000,
+            new LedgerEntry { Day = 12, Season = 1, Kind = "测试入账", Title = "测试：给玩家垫钱" });
+        TestRunner.Equal(MoneyMoveStatus.Applied, credit.Status, "前置：应能给影子钱包充值");
+        playerBefore = world.Player.Balance;
+
+        // 玩家先提出（玩家→NPC：玩家出钱）。
+        long amount = 3_000;
+        bool ok = TradePreviewWiring.HandlePlayerIntent(
+            $"[Trade: 雇佣, Amount: {amount}, Direction: playerToNpc]", Silent);
+        TestRunner.True(ok, "前置：玩家标记应落单");
+        string offerId = TradePreviewWiring.PendingFor(worldId)!.OfferId;
+        TestRunner.False(TradePreviewWiring.LastConfirmation!.NpcAccepted, "前置：NPC 票还没投");
+
+        // 模型回 accept（开关打开）。
+        bool voted;
+        using (TradeConfirmationGate.WithSettlement(true))
+        {
+            voted = TradePreviewWiring.HandleDealAccepted(Silent);
+        }
+
+        TestRunner.True(voted, "★[Deal: accept] 必须把 NPC 那一票投上");
+
+        // ★ 关键契约：NPC 点头之后**还差玩家自己那一票** —— 单子仍然是 pending、钱一分没动。
+        //   这是形态 b 的完整语义：玩家提出 → NPC 同意 → 玩家确认 → 才结算。
+        //   （真机上玩家是用「确认 <单号>」或弹窗投这一票的；模型说了 accept 不代表钱走了。）
+        var afterAccept = TradeConfirmationGate.Status(Ctx(world), offerId);
+        TestRunner.True(afterAccept.NpcAccepted, "NPC 票应已投上");
+        TestRunner.False(afterAccept.PlayerConfirmed, "★玩家票还没投（模型同意 ≠ 钱走了）");
+        TestRunner.False(afterAccept.ReadyToSettle, "两票没到齐，不该就绪");
+        TestRunner.Equal(TradeOfferStates.Pending, world.Offers[offerId].State,
+            "★单子应仍是 pending —— 此时钱一分没动");
+        TestRunner.Equal(playerBefore, world.Player.Balance, "★玩家余额未动");
+        TestRunner.Equal(npcBefore, world.Npcs[NpcId].Balance, "★NPC 余额未动");
+
+        // 玩家投下自己那一票 ⇒ 到齐 ⇒ 这一次才真的结算。
+        using (TradeConfirmationGate.WithSettlement(true))
+        {
+            TradePreviewWiring.HandlePlayerCommands(PrivateIdentitySlot.Peek()!, ["确认 " + offerId], Silent);
+        }
+
+        TestRunner.Equal(TradeOfferStates.Confirmed, world.Offers[offerId].State,
+            "★玩家确认后单子才结算");
+        TestRunner.Equal(playerBefore - amount, world.Player.Balance, "★玩家影子余额应真的减少");
+        TestRunner.Equal(npcBefore + amount, world.Npcs[NpcId].Balance, "★NPC 余额应真的增加");
+
+        TradePreviewWiring.Clear(worldId);
+    }
+
+    /// <summary>
+    /// <b>没有"玩家发起且待确认"的单时，模型回 accept 必须被忽略。</b>
+    /// <para>
+    /// 防的是"NPC 自己提议的单被一个多余的 accept 顶掉"——那条路在
+    /// <c>HandleModelIntent</c> 里已经投过 NPC 票了，再认一次 accept 会投到别的单上。
+    /// </para>
+    /// </summary>
+    private static void DealAcceptWithoutPlayerOfferIsIgnored()
+    {
+        Setup();
+        var runtime = EconomyModEntry.Runtime!;
+        string worldId = "deal-accept-none";
+        var world = runtime.WorldFor(Data(worldId))!;
+        PrivateIdentitySlot.Set(worldId, NpcId, NpcId, 12, 1, "test", Data(worldId));
+        TradePreviewWiring.Clear(worldId);
+        TradePreviewWiring.ResetNote(world);
+
+        // 世界里没有任何玩家发起的单。
+        bool voted = TradePreviewWiring.HandleDealAccepted(Silent);
+        TestRunner.False(voted, "★没有可认领的单时，accept 必须被忽略（绝不乱投）");
+
+        // 对照：让【模型】自己提议一笔（npc_to_player），它的 NPC 票在落单时就已投上，
+        // accept 也不该改变任何东西。
+        long npcBalance = world.Npcs[NpcId].Balance;
+        long amount = Math.Clamp(npcBalance * 3 / 10, 1_000, 50_000);
+        var intent = new TradeIntent(TradeKinds.Sponsor, TradeDirections.NpcToPlayer, NpcId,
+            EconomyTier.PlayerId, amount, [], "模型自己提议", $"[Trade: 赞助, Amount: {amount}]");
+        TradePreviewWiring.HandleModelIntent(intent, Silent);
+        TestRunner.True(TradePreviewWiring.LastConfirmation!.NpcAccepted,
+            "对照组：模型自己提议时 NPC 票当场就投（既有行为不变）");
+
+        bool again = TradePreviewWiring.HandleDealAccepted(Silent);
+        TestRunner.False(again,
+            "★模型自己提议的单不该被 accept 再认领一次（方向闸把 npc_to_player 挡住了）");
+
+        TradePreviewWiring.Clear(worldId);
     }
 }
 #endif
