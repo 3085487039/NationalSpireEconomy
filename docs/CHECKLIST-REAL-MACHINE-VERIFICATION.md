@@ -19,6 +19,69 @@
 | 2 | **游戏完全退出** | ⚠ 沙箱**看不到也杀不掉**你的游戏进程；换版前必须你自己退出。判据是"目标 DLL 能否独占写"，不是"有没有同名进程" |
 | 3 | 两套基线已全绿 | 395/395 与 533/533（已于 2026-10-14 实测） |
 
+### ⚠ 0.1 线上是**旧版**，必须先换版（2026-10-14 实测）
+
+**这是做真机前必须处理的第一件事。** 实测线上与交付包不一致：
+
+| | 线上 `mods\NationalSpireEconomy\` | 交付包 `deploy\NationalSpireEconomy\` |
+| --- | --- | --- |
+| DLL 字节 | `458752` | `466432` |
+| DLL SHA256 | `08D7BFC6…` | `AAA8CAF3…` |
+| `ai_prompt_economy.json` | 8393 字节 | 8642 字节 |
+
+**⇒ 线上那份不含 B 项的代码与提示词。** 直接开开关去验，验的是**旧行为**，白跑一轮。
+
+**换版命令**（游戏必须完全退出）：
+
+```powershell
+$root = 'D:\蓝色大肥鱼\NationalSpireEconomy'
+$stg  = "$root\deploy\NationalSpireEconomy"
+$dst  = 'D:\Steam\steamapps\common\Slay the Spire 2\mods\NationalSpireEconomy'
+
+Copy-Item "$stg\NationalSpireEconomy.dll"              "$dst\NationalSpireEconomy.dll"              -Force
+Copy-Item "$stg\config\ai_prompt_economy.json"         "$dst\config\ai_prompt_economy.json"         -Force
+# ⚠ 不要覆盖 config\economy_config.json —— 会把你手动开的 settlementWired 退回 false
+```
+
+> ⚠ 若 `deploy\` 不存在或过期（它被 `.gitignore` 排除、不进 git），
+> 先跑一次 `& "$root\build-deploy.ps1"` 重建。
+> **但注意既有的顺序纪律**：打包前先跑完两套基线，打包后不要再跑零依赖基线。
+
+### ⚠ 0.2 线上提示词的 `[Deal: accept]` 措辞是**旧版**（缺 B 项关键句）
+
+实测两份提示词在第 20 行有实质差异：
+
+| | 措辞 |
+| --- | --- |
+| **线上（旧）** | 「对方提出的交易你若同意，就在回复里再写一行：`[Deal: accept]`；不同意就不写。」 |
+| **交付包（新）** | 「★如果【玩家】先在消息里提出了交易（你会看到一行 `[Trade: …]` 标记），那笔交易要由你来表态：你同意就单独写一行 `[Deal: accept]`，不同意就不要写它、并照你的性格把理由说出来…**注意那一笔在你说同意之前不会成立，也不会动钱**。」 |
+
+**为什么这条重要**：B 项（玩家发起）的触发**完全依赖模型知道"玩家先提时我该表态"**。
+旧措辞没写清"谁先提"，模型很可能**不回应玩家的提议** ⇒ 单子停在 pending，
+你会误判成"功能没做出来"，**实际是提示词太旧**。
+
+**⇒ 换版必须连 `ai_prompt_economy.json` 一起换**（上面 §0.1 的命令已经包含）。
+
+### 0.3 线上目录有 17 个历史备份（**别急着删，但要知道它们在**）
+
+实测线上目录里有 **17 个** `.old-*` / `.round*` / `.bak-*` 文件，合计 **5.8 MB**。
+
+**它们不影响加载**（游戏只认 `NationalSpireEconomy.dll` 这个名字），
+但**会让排查时看花眼** —— 尤其搜"哪个 DLL 是当前的"的时候。
+
+**建议**：**这次先不删**（它们是历次换版的回滚点，`HANDOFF-PHASE-4-STEP4.md` §4 就是靠它们回滚的）。
+真机验完之后如果嫌乱，再单独收拾，**不要在做验收的中途动它们**。
+
+**交付包新鲜度已核对**（2026-10-14）：
+
+| 项 | 时间 |
+| --- | --- |
+| 最近一次 `src/` 改动 | 10-14 13:33:27 |
+| 交付包 DLL 构建 | 10-14 13:47:12 ✅ 晚于源码改动 |
+| 交付包 DLL SHA256 | `AAA8CAF3…`（466432 字节） |
+
+⇒ **`deploy\` 是当前版本，不需要重新打包。**
+
 ---
 
 ## 1. 步骤：打开动钱开关
